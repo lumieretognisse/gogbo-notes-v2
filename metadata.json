@@ -1,0 +1,7 @@
+{
+  "name": "GOGBO NOTES V2 - CEG GOGBO",
+  "description": "Plateforme académique sécurisée et système numérique officiel de gestion scolaire du CEG GOGBO (Année 2026–2027, Commune d'Adjohoun, Arrondissement de Gangban).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

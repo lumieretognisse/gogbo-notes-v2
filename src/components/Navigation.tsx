@@ -1,0 +1,249 @@
+import React from 'react';
+import { useAuth } from '../context/AuthContext';
+import { 
+  LayoutDashboard, 
+  BookOpen, 
+  Users, 
+  GraduationCap, 
+  Network, 
+  School, 
+  Layers, 
+  CalendarDays, 
+  History, 
+  Settings,
+  ShieldCheck,
+  CreditCard,
+  LogOut,
+  User,
+  Trophy,
+  FileText
+} from 'lucide-react';
+
+export type TabKey = 
+  | 'censeur_dashboard'
+  | 'pedagogique'
+  | 'classement'
+  | 'bulletins'
+  | 'eleves'
+  | 'enseignants'
+  | 'affectations'
+  | 'classes'
+  | 'matieres'
+  | 'periodes'
+  | 'audit'
+  | 'parametres'
+  | 'directeur_stats'
+  | 'surveillant'
+  | 'comptable';
+
+interface NavigationProps {
+  currentTab: TabKey;
+  onSelectTab: (tab: TabKey) => void;
+  onOpenMonCompte?: () => void;
+}
+
+export const Navigation: React.FC<NavigationProps> = ({ currentTab, onSelectTab, onOpenMonCompte }) => {
+  const { currentUser, isCenseur, isDirecteur, isSurveillant, isComptable, hasPedagogicalAssignments, logout } = useAuth();
+
+  if (!currentUser) return null;
+
+  // Détermination des onglets disponibles selon le profil
+  const getTabs = () => {
+    const tabs: { key: TabKey; label: string; icon: React.ReactNode; badge?: string }[] = [];
+
+    // 1. ESPACE DIRECTEUR GÉNÉRAL
+    if (isDirecteur) {
+      tabs.push({
+        key: 'directeur_stats',
+        label: 'Supervision & Stats',
+        icon: <LayoutDashboard className="w-4 h-4" />,
+      });
+      // Le DG a-t-il une affectation pédagogique ? (Ex: Terminale D Mathématiques)
+      if (hasPedagogicalAssignments || currentUser.is_enseignant) {
+        tabs.push({
+          key: 'pedagogique',
+          label: 'Espace Pédagogique',
+          icon: <BookOpen className="w-4 h-4 text-emerald-400" />,
+          badge: 'Mes Notes',
+        });
+      }
+      tabs.push(
+        { key: 'classement', label: 'Classement', icon: <Trophy className="w-4 h-4 text-amber-400" /> },
+        { key: 'bulletins', label: 'Bulletins Scolaires', icon: <FileText className="w-4 h-4 text-emerald-400" /> },
+        { key: 'eleves', label: 'Consultation Élèves', icon: <Users className="w-4 h-4" /> },
+        { key: 'enseignants', label: 'Enseignants', icon: <GraduationCap className="w-4 h-4" /> },
+        { key: 'affectations', label: 'Attributions de classe', icon: <Network className="w-4 h-4" /> },
+        { key: 'classes', label: 'Classes (28)', icon: <School className="w-4 h-4" /> },
+        { key: 'audit', label: 'Journal d’Audit', icon: <History className="w-4 h-4" /> }
+      );
+      return tabs;
+    }
+
+    // 2. ESPACE CENSEUR (ADMINISTRATEUR OPÉRATIONNEL PRINCIPAL)
+    if (isCenseur) {
+      tabs.push(
+        {
+          key: 'censeur_dashboard',
+          label: 'Tableau de bord',
+          icon: <LayoutDashboard className="w-4 h-4" />,
+        }
+      );
+      // Le Censeur enseigne également (Ex: 4ème A & 3ème B SVT)
+      if (hasPedagogicalAssignments || currentUser.is_enseignant) {
+        tabs.push({
+          key: 'pedagogique',
+          label: 'Espace Pédagogique',
+          icon: <BookOpen className="w-4 h-4 text-emerald-400" />,
+          badge: 'Mes Classes',
+        });
+      }
+      tabs.push(
+        { key: 'classement', label: 'Classement', icon: <Trophy className="w-4 h-4 text-amber-500" /> },
+        { key: 'bulletins', label: 'Bulletins Scolaires', icon: <FileText className="w-4 h-4 text-emerald-600" /> },
+        { key: 'eleves', label: 'Élèves', icon: <Users className="w-4 h-4" /> },
+        { key: 'enseignants', label: 'Enseignants', icon: <GraduationCap className="w-4 h-4" /> },
+        { key: 'affectations', label: 'Attributions de classe', icon: <Network className="w-4 h-4" /> },
+        { key: 'classes', label: 'Classes (28)', icon: <School className="w-4 h-4" /> },
+        { key: 'matieres', label: 'Matières & Coefs', icon: <Layers className="w-4 h-4" /> },
+        { key: 'periodes', label: 'Périodes', icon: <CalendarDays className="w-4 h-4" /> },
+        { key: 'audit', label: 'Journal d’Audit', icon: <History className="w-4 h-4" /> },
+        { key: 'parametres', label: 'Paramètres', icon: <Settings className="w-4 h-4" /> }
+      );
+      return tabs;
+    }
+
+    // 3. ESPACE SURVEILLANT GÉNÉRAL
+    if (isSurveillant) {
+      tabs.push(
+        {
+          key: 'surveillant',
+          label: 'Discipline & Présences',
+          icon: <ShieldCheck className="w-4 h-4" />,
+        }
+      );
+      if (hasPedagogicalAssignments || currentUser.is_enseignant) {
+        tabs.push({
+          key: 'pedagogique',
+          label: 'Espace Pédagogique',
+          icon: <BookOpen className="w-4 h-4 text-emerald-400" />,
+        });
+      }
+      tabs.push(
+        { key: 'classement', label: 'Palmarès & Rangs', icon: <Trophy className="w-4 h-4 text-amber-500" /> },
+        { key: 'eleves', label: 'Registre Élèves', icon: <Users className="w-4 h-4" /> },
+        { key: 'classes', label: 'Classes', icon: <School className="w-4 h-4" /> }
+      );
+      return tabs;
+    }
+
+    // 4. ESPACE COMPTABLE
+    if (isComptable) {
+      tabs.push(
+        {
+          key: 'comptable',
+          label: 'Comptabilité & Effectifs',
+          icon: <CreditCard className="w-4 h-4" />,
+        }
+      );
+      if (hasPedagogicalAssignments || currentUser.is_enseignant) {
+        tabs.push({
+          key: 'pedagogique',
+          label: 'Espace Pédagogique',
+          icon: <BookOpen className="w-4 h-4 text-emerald-400" />,
+        });
+      }
+      tabs.push(
+        { key: 'eleves', label: 'Élèves Inscrits', icon: <Users className="w-4 h-4" /> },
+        { key: 'classes', label: 'Classes', icon: <School className="w-4 h-4" /> }
+      );
+      return tabs;
+    }
+
+    // 5. ESPACE ENSEIGNANT (STRICTEMENT PÉDAGOGIQUE)
+    tabs.push(
+      {
+        key: 'pedagogique',
+        label: 'Mon Espace Pédagogique',
+        icon: <BookOpen className="w-4 h-4" />,
+      },
+      {
+        key: 'classement',
+        label: 'Classement de mes Classes',
+        icon: <Trophy className="w-4 h-4 text-amber-500" />,
+      },
+      {
+        key: 'bulletins',
+        label: 'Bulletins Scolaires',
+        icon: <FileText className="w-4 h-4 text-emerald-600" />,
+      }
+    );
+
+    return tabs;
+  };
+
+  const tabs = getTabs();
+
+  return (
+    <nav id="nav-gogbo-tabs" className="bg-white border-b border-slate-200 sticky top-[73px] sm:top-[77px] z-30 shadow-xs">
+      <div className="max-w-7xl mx-auto px-2 sm:px-6">
+        <div className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto py-2 scrollbar-none no-scrollbar">
+          {/* BOUTON DE DÉCONNEXION OBLIGATOIREMENT À GAUCHE (EXIGENCE 14) */}
+          <button
+            id="btn-logout-left"
+            onClick={logout}
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-900 border border-red-200 transition-all shadow-2xs shrink-0"
+            title="Fermer la session et retourner au portail de connexion"
+          >
+            <LogOut className="w-4 h-4 rotate-180 text-red-600" />
+            <span>↪ Déconnexion</span>
+          </button>
+
+          {/* BOUTON MON COMPTE PERSONNEL (EXIGENCE 7) */}
+          {onOpenMonCompte && (
+            <button
+              id="btn-mon-compte-nav"
+              onClick={onOpenMonCompte}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900 border border-slate-200 transition-all shrink-0"
+              title="Modifier mon identifiant ou mon mot de passe"
+            >
+              <User className="w-4 h-4 text-slate-500" />
+              <span>Mon compte</span>
+            </button>
+          )}
+
+          {/* SÉPARATEUR VERTICAL SUBTIL */}
+          <div className="h-6 w-px bg-slate-300 mx-1 shrink-0"></div>
+
+          {/* LISTE DES ONGLETS DE NAVIGATION DÉPENDANTS DU RÔLE */}
+          {tabs.map((tab) => {
+            const isActive = currentTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                id={`tab-btn-${tab.key}`}
+                onClick={() => onSelectTab(tab.key)}
+                className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all duration-150 ${
+                  isActive
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider ${
+                      isActive ? 'bg-amber-400 text-slate-900' : 'bg-emerald-100 text-emerald-800'
+                    }`}
+                  >
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </nav>
+  );
+};
