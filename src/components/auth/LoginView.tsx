@@ -12,7 +12,11 @@ import {
   AlertCircle, 
   CheckCircle2, 
   Sparkles,
-  Building2
+  Building2,
+  KeyRound,
+  X,
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 
 export type PortalType = 'ADMIN' | 'ENSEIGNANT';
@@ -22,21 +26,24 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onBackToHome }) => {
-  const { login, switchUser } = useAuth();
+  const { login, resetPassword } = useAuth();
   const [activePortal, setActivePortal] = useState<PortalType>('ADMIN');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const profiles = storage.getProfiles();
+  // Modal de Réinitialisation Sécurisée
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [resetNewPass, setResetNewPass] = useState('');
+  const [resetConfirmPass, setResetConfirmPass] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
+
   const params = storage.getParametres();
-
-  // Profils administratifs (DG, Censeur, Surveillant, Comptable)
-  const adminProfiles = profiles.filter((p) => p.role !== 'ENSEIGNANT');
-
-  // Profils pour le portail enseignants (Enseignants purs + Censeur/DG ayant charge d'enseignement)
-  const teacherProfiles = profiles.filter((p) => p.is_enseignant || p.role === 'ENSEIGNANT');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +62,65 @@ export const LoginView: React.FC<LoginViewProps> = ({ onBackToHome }) => {
     setError(null);
     setEmail('');
     setPassword('');
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError(null);
+    setResetSuccess(null);
+
+    const cleanEmail = resetEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setResetError("Veuillez saisir une adresse e-mail académique valide.");
+      return;
+    }
+
+    const profiles = storage.getProfiles();
+    const user = profiles.find((p) => p.email.toLowerCase() === cleanEmail);
+    if (!user) {
+      setResetError("Aucun compte actif trouvé avec cette adresse e-mail.");
+      return;
+    }
+
+    // Code de vérification académique ou confirmation ministérielle
+    const cleanCode = resetCode.trim().toUpperCase();
+    if (cleanCode !== 'GOGBO2026' && cleanCode !== '2026' && cleanCode !== 'ADJOHOUN') {
+      setResetError("Code de sécurité institutionnel invalide. Veuillez contacter la Direction ou utiliser le code de sécurité de l'établissement (GOGBO2026).");
+      return;
+    }
+
+    if (!resetNewPass || resetNewPass.trim().length < 6) {
+      setResetError("Le nouveau mot de passe doit comporter au moins 6 caractères.");
+      return;
+    }
+
+    if (resetNewPass.trim() !== resetConfirmPass.trim()) {
+      setResetError("La confirmation ne correspond pas au nouveau mot de passe saisi.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const res = await resetPassword(user.id, resetNewPass.trim());
+      if (res.success) {
+        setResetSuccess("✓ Mot de passe réinitialisé avec succès ! Vous pouvez maintenant vous connecter avec ce nouveau mot de passe.");
+        setEmail(cleanEmail);
+        setPassword('');
+        setTimeout(() => {
+          setIsResetModalOpen(false);
+          setResetSuccess(null);
+          setResetCode('');
+          setResetNewPass('');
+          setResetConfirmPass('');
+        }, 2500);
+      } else {
+        setResetError(res.error || "Erreur lors de la réinitialisation.");
+      }
+    } catch {
+      setResetError("Une erreur inattendue est survenue lors de la réinitialisation.");
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   return (
@@ -252,6 +318,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onBackToHome }) => {
               helpText="Masqué par défaut. Cliquez sur l’icône 👁 pour afficher ou masquer temporairement."
             />
 
+            {/* Lien Mot de passe oublié / Réinitialisation sécurisée */}
+            <div className="flex justify-end pt-1">
+              <button
+                id="btn-mot-de-passe-oublie"
+                type="button"
+                onClick={() => {
+                  setResetEmail(email);
+                  setResetError(null);
+                  setResetSuccess(null);
+                  setIsResetModalOpen(true);
+                }}
+                className="text-xs text-emerald-700 hover:text-emerald-950 font-semibold underline inline-flex items-center space-x-1 cursor-pointer"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                <span>Mot de passe oublié / Réinitialisation sécurisée</span>
+              </button>
+            </div>
+
             {/* Bouton de validation obligatoire SE CONNECTER (Exigence 6) */}
             <button
               id="btn-login-submit"
@@ -261,75 +345,138 @@ export const LoginView: React.FC<LoginViewProps> = ({ onBackToHome }) => {
                 activePortal === 'ADMIN'
                   ? 'bg-slate-900 hover:bg-slate-800 border border-slate-800'
                   : 'bg-emerald-700 hover:bg-emerald-800 border border-emerald-600'
-              } disabled:opacity-50`}
+              } disabled:opacity-50 cursor-pointer`}
             >
               <span>{loading ? 'Vérification en cours...' : 'SE CONNECTER'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
-
-          {/* Profils pré-configurés pour tests rapides : Remplissage SANS auto-connexion (Exigence 6) */}
-          <div className="mt-6 pt-5 border-t border-slate-200">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                {activePortal === 'ADMIN' ? 'Sélection rapide compte administratif' : 'Sélection rapide compte enseignant'}
-              </span>
-              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">
-                {activePortal === 'ADMIN' ? `${adminProfiles.length} comptes` : `${teacherProfiles.length} comptes`}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 mb-2">
-              Cliquez pour renseigner l'identifiant, puis cliquez obligatoirement sur <strong>SE CONNECTER</strong>.
-            </p>
-
-            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-              {(activePortal === 'ADMIN' ? adminProfiles : teacherProfiles).map((p) => (
-                <button
-                  key={p.id}
-                  id={`quick-select-${p.id}`}
-                  type="button"
-                  onClick={() => {
-                    setEmail(p.email);
-                    setPassword('Passer123!');
-                    setError(null);
-                  }}
-                  className="w-full text-left p-2 rounded-lg bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-xs transition-colors flex items-center justify-between group"
-                >
-                  <div className="flex items-center space-x-2">
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        p.role === 'DIRECTEUR_GENERAL'
-                          ? 'bg-red-500'
-                          : p.role === 'CENSEUR'
-                          ? 'bg-amber-500'
-                          : p.role === 'SURVEILLANT_GENERAL'
-                          ? 'bg-blue-500'
-                          : p.role === 'COMPTABLE'
-                          ? 'bg-purple-500'
-                          : 'bg-emerald-500'
-                      }`}
-                    ></span>
-                    <div>
-                      <span className="font-bold text-slate-800 group-hover:text-emerald-800">
-                        {p.nom} {p.prenom}
-                      </span>
-                      <span className="text-[10px] text-slate-500 ml-1.5 font-medium">({p.role})</span>
-                      {p.is_enseignant && p.role !== 'ENSEIGNANT' && (
-                        <span className="text-[10px] text-emerald-700 bg-emerald-100/80 px-1.5 py-0.2 rounded ml-1 font-semibold">
-                          + Enseigne
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <span className="text-[11px] text-slate-400 group-hover:text-emerald-700 font-semibold">
-                    Renseigner →
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </main>
+
+      {/* MODAL DE RÉINITIALISATION SÉCURISÉE DU MOT DE PASSE */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white px-5 py-4 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/40">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight text-white">
+                    Réinitialisation Sécurisée
+                  </h3>
+                  <p className="text-[11px] text-slate-300">
+                    Définir un nouveau mot de passe pour votre compte académique
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResetModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleResetPasswordSubmit} className="p-5 sm:p-6 space-y-4">
+              {resetSuccess && (
+                <div className="p-3 bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-xl text-xs sm:text-sm flex items-start space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="font-semibold">{resetSuccess}</p>
+                </div>
+              )}
+
+              {resetError && (
+                <div className="p-3 bg-red-50 text-red-900 border border-red-200 rounded-xl text-xs flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <p className="font-semibold">{resetError}</p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1 text-xs">
+                  Identifiant ou E-mail académique <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="email"
+                    required
+                    placeholder="censeur@ceggogbo.bj"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-emerald-600 bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1 text-xs">
+                  Code de sécurité institutionnel <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="GOGBO2026"
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs font-mono tracking-wider uppercase focus:ring-2 focus:ring-emerald-600 bg-white"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Code officiel d'établissement pour la session 2026–2027 : <strong>GOGBO2026</strong>
+                </p>
+              </div>
+
+              <PasswordField
+                id="reset-new-password"
+                label="Nouveau mot de passe"
+                value={resetNewPass}
+                onChange={(e) => setResetNewPass(e.target.value)}
+                placeholder="Au moins 6 caractères"
+                required
+                helpText="Le mot de passe sera cryptographiquement sécurisé et actif immédiatement."
+              />
+
+              <PasswordField
+                id="reset-confirm-password"
+                label="Confirmer le nouveau mot de passe"
+                value={resetConfirmPass}
+                onChange={(e) => setResetConfirmPass(e.target.value)}
+                placeholder="Répétez le mot de passe"
+                required
+              />
+
+              <div className="pt-2 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsResetModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${resetLoading ? 'animate-spin' : ''}`} />
+                  <span>{resetLoading ? 'Réinitialisation...' : 'Enregistrer le nouveau mot de passe'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <footer className="mt-6 text-center text-xs text-slate-500">
         Collège d’Enseignement Général de GOGBO • République du Bénin • Système certifié conforme

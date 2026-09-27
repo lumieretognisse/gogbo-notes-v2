@@ -55,20 +55,36 @@ CREATE TABLE IF NOT EXISTS public.notes (
 );
 
 -- RLS POLICIES (Row-Level Security)
-ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
+-- 14. PRÉSENCE JOURNALIÈRE DES ENSEIGNANTS (CENSEUR)
+CREATE TABLE IF NOT EXISTS public.presences_enseignants (
+  id TEXT PRIMARY KEY,
+  annee_scolaire TEXT NOT NULL,
+  date DATE NOT NULL,
+  enseignant_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  enseignant_nom TEXT NOT NULL,
+  matieres_attribuees TEXT,
+  statut TEXT NOT NULL CHECK (statut IN ('PRESENT', 'RETARD', 'ABSENCE', 'PERMISSION')),
+  motif TEXT,
+  heure_arrivee TEXT,
+  enregistre_par_id UUID REFERENCES public.profiles(id),
+  enregistre_par_nom TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT unique_enseignant_date_annee UNIQUE (enseignant_id, date, annee_scolaire)
+);
 
-CREATE POLICY "Enseignants affectes peuvent inserer notes"
-  ON public.notes FOR INSERT
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.affectations a
-      JOIN public.periodes p ON p.id = notes.periode_id
-      WHERE a.id = notes.affectation_id
-        AND a.profile_id = auth.uid()
-        AND a.statut = 'ACTIF'
-        AND p.is_locked = FALSE
-    )
-  );`;
+ALTER TABLE public.presences_enseignants ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Gestion presences_enseignants Censeur et DG"
+  ON public.presences_enseignants FOR ALL
+  TO authenticated
+  USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'))
+  WITH CHECK (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
+
+CREATE POLICY "Lecture presences_enseignants propre compte"
+  ON public.presences_enseignants FOR SELECT
+  TO authenticated
+  USING (enseignant_id = auth.uid() OR public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL', 'SURVEILLANT_GENERAL'));`;
 
   const seedSql = `-- Initialisation des 28 Classes Officielles et Matières
 -- Fichier source : /supabase/seed.sql

@@ -1,7 +1,7 @@
 -- ====================================================================
 -- GOGBO NOTES V2 - SCHÉMA OFFICIEL POSTGRESQL / SUPABASE
 -- CEG GOGBO (Commune d'Adjohoun, Arrondissement de Gangban)
--- Année académique : 2026–2027
+-- Architecture : Pluriannuelle Pérenne (2026–2027, 2027–2028, 2028–2029...)
 -- ====================================================================
 
 -- 1. EXTENSIONS
@@ -10,6 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- 2. TYPES ENUM
 DO $$ BEGIN
   CREATE TYPE role_admin AS ENUM (
+    'CONCEPTEUR',
     'DIRECTEUR_GENERAL',
     'CENSEUR',
     'SURVEILLANT_GENERAL',
@@ -33,18 +34,42 @@ EXCEPTION
 END $$;
 
 DO $$ BEGIN
+  CREATE TYPE statut_annee AS ENUM ('CLOTUREE', 'EN_COURS', 'A_VENIR');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
   CREATE TYPE langue_option AS ENUM ('AUCUNE', 'ALLEMAND', 'ESPAGNOL');
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-  CREATE TYPE type_eval AS ENUM ('INTERROGATION', 'DEVOIR_1', 'DEVOIR_2');
+  CREATE TYPE type_eval AS ENUM (
+    'INTERROGATION_1',
+    'INTERROGATION_2',
+    'INTERROGATION_3',
+    'DEVOIR_1',
+    'DEVOIR_2',
+    'INTERROGATION'
+  );
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
 
--- 3. TABLE PROFILES
+-- 3. TABLE ANNÉES SCOLAIRES
+CREATE TABLE IF NOT EXISTS public.annees_scolaires (
+  id TEXT PRIMARY KEY,
+  libelle TEXT NOT NULL UNIQUE,
+  date_debut DATE NOT NULL,
+  date_fin DATE NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT false,
+  statut statut_annee NOT NULL DEFAULT 'A_VENIR',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 4. TABLE PROFILES (Personnels, Administrateurs et Enseignants)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT NOT NULL UNIQUE,
@@ -58,7 +83,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 4. TABLE CLASSES (28 classes officielles, max 100 élèves)
+-- 5. TABLE CLASSES (28 classes officielles, max 100 élèves)
 CREATE TABLE IF NOT EXISTS public.classes (
   id TEXT PRIMARY KEY,
   nom TEXT NOT NULL UNIQUE,
@@ -66,10 +91,11 @@ CREATE TABLE IF NOT EXISTS public.classes (
   serie TEXT,
   effectif_max INT NOT NULL DEFAULT 100 CHECK (effectif_max <= 100),
   salle TEXT,
+  statut statut_compte NOT NULL DEFAULT 'ACTIF',
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 5. TABLE MATIERES (minimum 11 matières obligatoires)
+-- 6. TABLE MATIERES (minimum 11 matières officielles)
 CREATE TABLE IF NOT EXISTS public.matieres (
   id TEXT PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
@@ -81,7 +107,7 @@ CREATE TABLE IF NOT EXISTS public.matieres (
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 6. TABLE ELEVES
+-- 7. TABLE ELEVES (Identité permanente de l'élève)
 CREATE TABLE IF NOT EXISTS public.eleves (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   matricule TEXT NOT NULL UNIQUE,
@@ -89,6 +115,7 @@ CREATE TABLE IF NOT EXISTS public.eleves (
   prenom TEXT NOT NULL,
   sexe sexe_eleve NOT NULL,
   date_naissance DATE,
+  lieu_naissance TEXT,
   classe_id TEXT NOT NULL REFERENCES public.classes(id) ON DELETE RESTRICT,
   langue_vivante_2 langue_option NOT NULL DEFAULT 'AUCUNE',
   nom_parent TEXT,
@@ -98,7 +125,23 @@ CREATE TABLE IF NOT EXISTS public.eleves (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 7. TABLE PERIODES (Trimestres 2026-2027)
+-- 8. TABLE INSCRIPTIONS ANNUELLES DES ÉLÈVES (Pilier de l'architecture pluriannuelle)
+-- Permet de conserver l'historique complet d'un élève : Jean en 6ème A (2026-2027), puis 5ème A (2027-2028)...
+CREATE TABLE IF NOT EXISTS public.inscriptions_eleves (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  eleve_id UUID NOT NULL REFERENCES public.eleves(id) ON DELETE RESTRICT,
+  classe_id TEXT NOT NULL REFERENCES public.classes(id) ON DELETE RESTRICT,
+  annee_scolaire TEXT NOT NULL,
+  statut statut_compte NOT NULL DEFAULT 'ACTIF',
+  date_inscription DATE NOT NULL DEFAULT CURRENT_DATE,
+  redoublant BOOLEAN NOT NULL DEFAULT false,
+  actif BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT unique_inscription_eleve_annee UNIQUE (eleve_id, annee_scolaire)
+);
+
+-- 9. TABLE PERIODES (Trimestres / Semestres rattachés à une année scolaire)
 CREATE TABLE IF NOT EXISTS public.periodes (
   id TEXT PRIMARY KEY,
   annee_scolaire TEXT NOT NULL DEFAULT '2026–2027',
@@ -111,25 +154,28 @@ CREATE TABLE IF NOT EXISTS public.periodes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 8. TABLE AFFECTATIONS PÉDAGOGIQUES (Clé de voûte de la sécurité)
+-- 10. TABLE ATTRIBUTIONS DE CLASSE (Affectations Pédagogiques Pluriannuelles)
+-- Rattachées strictement à l'année scolaire pour éviter tout conflit ou écrasement
 CREATE TABLE IF NOT EXISTS public.affectations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  classe_id TEXT NOT NULL REFERENCES public.classes(id) ON DELETE CASCADE,
-  matiere_id TEXT NOT NULL REFERENCES public.matieres(id) ON DELETE CASCADE,
+  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  classe_id TEXT NOT NULL REFERENCES public.classes(id) ON DELETE RESTRICT,
+  matiere_id TEXT NOT NULL REFERENCES public.matieres(id) ON DELETE RESTRICT,
+  annee_scolaire TEXT NOT NULL DEFAULT '2026–2027',
   heures_hebdo INT NOT NULL DEFAULT 4 CHECK (heures_hebdo > 0),
   statut statut_compte NOT NULL DEFAULT 'ACTIF',
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  CONSTRAINT unique_affectation_active UNIQUE (profile_id, classe_id, matiere_id)
+  CONSTRAINT unique_affectation_annee UNIQUE (profile_id, classe_id, matiere_id, annee_scolaire)
 );
 
--- 9. TABLE NOTES
+-- 11. TABLE NOTES (Évaluations officielles avec isolation pluriannuelle)
 CREATE TABLE IF NOT EXISTS public.notes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  eleve_id UUID NOT NULL REFERENCES public.eleves(id) ON DELETE CASCADE,
-  affectation_id UUID NOT NULL REFERENCES public.affectations(id) ON DELETE CASCADE,
+  eleve_id UUID NOT NULL REFERENCES public.eleves(id) ON DELETE RESTRICT,
+  affectation_id UUID NOT NULL REFERENCES public.affectations(id) ON DELETE RESTRICT,
   periode_id TEXT NOT NULL REFERENCES public.periodes(id) ON DELETE RESTRICT,
+  annee_scolaire TEXT NOT NULL DEFAULT '2026–2027',
   valeur NUMERIC(4, 2) NOT NULL CHECK (valeur >= 0 AND valeur <= 20),
   type_evaluation type_eval NOT NULL DEFAULT 'DEVOIR_1',
   saisi_par UUID NOT NULL REFERENCES public.profiles(id),
@@ -139,7 +185,7 @@ CREATE TABLE IF NOT EXISTS public.notes (
   CONSTRAINT unique_note_eleve_eval UNIQUE (eleve_id, affectation_id, periode_id, type_evaluation)
 );
 
--- 10. TABLE PARAMETRES ECOLE
+-- 12. TABLE PARAMETRES ECOLE
 CREATE TABLE IF NOT EXISTS public.parametres_ecole (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   nom_etablissement TEXT NOT NULL DEFAULT 'CEG GOGBO',
@@ -157,7 +203,7 @@ CREATE TABLE IF NOT EXISTS public.parametres_ecole (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 11. TABLE AUDIT LOGS
+-- 13. TABLE AUDIT LOGS
 CREATE TABLE IF NOT EXISTS public.audit_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID,
@@ -170,19 +216,46 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
+-- 14. TABLE PRÉSENCE JOURNALIÈRE DES ENSEIGNANTS (Module Censeur)
+DO $$ BEGIN
+  CREATE TYPE statut_presence_enseignant AS ENUM ('PRESENT', 'RETARD', 'ABSENCE', 'PERMISSION');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.presences_enseignants (
+  id TEXT PRIMARY KEY,
+  annee_scolaire TEXT NOT NULL,
+  date DATE NOT NULL,
+  enseignant_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  enseignant_nom TEXT NOT NULL,
+  matieres_attribuees TEXT, -- Matières réellement attribuées au moment de la saisie
+  statut statut_presence_enseignant NOT NULL DEFAULT 'PRESENT',
+  motif TEXT,
+  heure_arrivee TEXT,
+  enregistre_par_id UUID REFERENCES public.profiles(id),
+  enregistre_par_nom TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT unique_enseignant_date_annee UNIQUE (enseignant_id, date, annee_scolaire)
+);
+
 -- ====================================================================
--- RLS (ROW LEVEL SECURITY) POLICIES - SÉCURITÉ DE NIVEAU ENTREPRISE
+-- RLS (ROW LEVEL SECURITY) POLICIES - SÉCURITÉ PLURIANNUELLE ÉTANCHE
 -- ====================================================================
 
+ALTER TABLE public.annees_scolaires ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.classes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.matieres ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.eleves ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inscriptions_eleves ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.periodes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.affectations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.parametres_ecole ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.presences_enseignants ENABLE ROW LEVEL SECURITY;
 
 -- Helper function: Récupérer le rôle de l'utilisateur connecté
 CREATE OR REPLACE FUNCTION public.get_current_role()
@@ -190,97 +263,158 @@ RETURNS role_admin AS $$
   SELECT role FROM public.profiles WHERE id = auth.uid();
 $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
+-- Helper function: Vérifier si une année scolaire est active et non clôturée
+CREATE OR REPLACE FUNCTION public.is_annee_scolaire_active(p_annee TEXT)
+RETURNS BOOLEAN AS $$
+  SELECT COALESCE((SELECT is_active FROM public.annees_scolaires WHERE libelle = p_annee), true);
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+-- ANNÉES SCOLAIRES
+CREATE POLICY "Lecture annees_scolaires pour tous les connectes"
+  ON public.annees_scolaires FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Gestion annees_scolaires Censeur et DG"
+  ON public.annees_scolaires FOR ALL
+  TO authenticated
+  USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
+
 -- PROFILES Policies
-CREATE POLICY "Lecture profiles par utilisateurs connectés"
+CREATE POLICY "Lecture profiles par utilisateurs connectes"
   ON public.profiles FOR SELECT
   TO authenticated
   USING (true);
 
-CREATE POLICY "Censeur peut administrer les profils"
+CREATE POLICY "Censeur et DG peuvent administrer les profils"
   ON public.profiles FOR ALL
   TO authenticated
-  USING (public.get_current_role() = 'CENSEUR');
+  USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
--- CLASSES & MATIERES & PERIODES: Lecture pour tous, modification Censeur
+-- CLASSES, MATIERES, PERIODES
 CREATE POLICY "Lecture classes" ON public.classes FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Gestion classes Censeur" ON public.classes FOR ALL TO authenticated USING (public.get_current_role() = 'CENSEUR');
+CREATE POLICY "Gestion classes Censeur" ON public.classes FOR ALL TO authenticated USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
 CREATE POLICY "Lecture matieres" ON public.matieres FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Gestion matieres Censeur" ON public.matieres FOR ALL TO authenticated USING (public.get_current_role() = 'CENSEUR');
+CREATE POLICY "Gestion matieres Censeur" ON public.matieres FOR ALL TO authenticated USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
 CREATE POLICY "Lecture periodes" ON public.periodes FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Gestion periodes Censeur" ON public.periodes FOR ALL TO authenticated USING (public.get_current_role() = 'CENSEUR');
+CREATE POLICY "Gestion periodes Censeur" ON public.periodes FOR ALL TO authenticated USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
--- ELEVES: Lecture pour tous les personnels connectés, écriture réservée au Censeur
+-- ELEVES & INSCRIPTIONS ANNUELLES
 CREATE POLICY "Lecture eleves" ON public.eleves FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Gestion eleves Censeur" ON public.eleves FOR ALL TO authenticated USING (public.get_current_role() = 'CENSEUR');
+CREATE POLICY "Gestion eleves Censeur et DG" ON public.eleves FOR ALL TO authenticated USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
--- AFFECTATIONS: Lecture pour tous, gestion par le Censeur
+CREATE POLICY "Lecture inscriptions" ON public.inscriptions_eleves FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Gestion inscriptions Censeur et DG" ON public.inscriptions_eleves FOR ALL TO authenticated USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
+
+-- ATTRIBUTIONS DE CLASSE (AFFECTATIONS)
 CREATE POLICY "Lecture affectations" ON public.affectations FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Gestion affectations Censeur" ON public.affectations FOR ALL TO authenticated USING (public.get_current_role() = 'CENSEUR');
+CREATE POLICY "Gestion affectations Censeur" ON public.affectations FOR ALL TO authenticated USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
 -- ====================================================================
--- RLS DES NOTES : PRINCIPE STRICT AFFECTATION PÉDAGOGIQUE (Section 3 & 16)
+-- RLS DES NOTES : PRINCIPE STRICT D'ATTRIBUTION & ANNÉE NON CLÔTURÉE
 -- ====================================================================
 
 -- 1. Lecture des notes :
---    - Le Censeur et le DG peuvent consulter toutes les notes
---    - Tout enseignant (même Censeur/DG en mode enseignant) peut consulter les notes liées à ses affectations
-CREATE POLICY "Lecture notes sécurisée"
+--    - Le Censeur, le DG et le SG peuvent consulter toutes les notes (y compris archives)
+--    - L'enseignant peut consulter les notes liées à ses affectations
+CREATE POLICY "Lecture notes securisee"
   ON public.notes FOR SELECT
   TO authenticated
   USING (
-    public.get_current_role() IN ('CENSEUR', 'DIRECTEUR_GENERAL', 'SURVEILLANT_GENERAL')
+    public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL', 'SURVEILLANT_GENERAL')
     OR
     EXISTS (
       SELECT 1 FROM public.affectations a
       WHERE a.id = notes.affectation_id
         AND a.profile_id = auth.uid()
-        AND a.statut = 'ACTIF'
     )
   );
 
 -- 2. Saisie et modification des notes :
---    - UNIQUEMENT par l'utilisateur titulaire de l'affectation active !
+--    - UNIQUEMENT par le titulaire de l'attribution active pour cette année !
 --    - La période ne doit PAS être verrouillée !
-CREATE POLICY "Insertion notes réservée au titulaire d affectation"
+--    - L'année scolaire ne doit PAS être clôturée !
+CREATE POLICY "Insertion notes reservee au titulaire d attribution"
   ON public.notes FOR INSERT
   TO authenticated
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM public.affectations a
       JOIN public.periodes p ON p.id = notes.periode_id
+      JOIN public.annees_scolaires an ON an.libelle = p.annee_scolaire
       WHERE a.id = notes.affectation_id
         AND a.profile_id = auth.uid()
         AND a.statut = 'ACTIF'
         AND p.is_locked = false
+        AND an.is_active = true
+        AND an.statut = 'EN_COURS'
     )
   );
 
-CREATE POLICY "Modification notes réservée au titulaire d affectation"
+CREATE POLICY "Modification notes reservee au titulaire d attribution"
   ON public.notes FOR UPDATE
   TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM public.affectations a
       JOIN public.periodes p ON p.id = notes.periode_id
+      JOIN public.annees_scolaires an ON an.libelle = p.annee_scolaire
       WHERE a.id = notes.affectation_id
         AND a.profile_id = auth.uid()
         AND a.statut = 'ACTIF'
         AND p.is_locked = false
+        AND an.is_active = true
+        AND an.statut = 'EN_COURS'
     )
   );
 
 -- PARAMETRES & AUDIT LOGS
 CREATE POLICY "Lecture parametres" ON public.parametres_ecole FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Modification parametres Censeur" ON public.parametres_ecole FOR ALL TO authenticated USING (public.get_current_role() = 'CENSEUR');
+CREATE POLICY "Modification parametres Censeur et DG" ON public.parametres_ecole FOR ALL TO authenticated USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
 CREATE POLICY "Lecture audit logs pour Censeur et DG"
   ON public.audit_logs FOR SELECT
   TO authenticated
-  USING (public.get_current_role() IN ('CENSEUR', 'DIRECTEUR_GENERAL'));
+  USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
 
 CREATE POLICY "Insertion audit logs"
   ON public.audit_logs FOR INSERT
   TO authenticated
   WITH CHECK (true);
+
+-- ====================================================================
+-- POLITIQUES RLS : PRÉSENCE JOURNALIÈRE DES ENSEIGNANTS
+-- ====================================================================
+
+-- 1. Consultation des présences :
+--    - Censeur, DG, SG, Concepteur peuvent consulter toutes les présences
+--    - Chaque enseignant peut voir ses propres présences/retards/absences
+CREATE POLICY "Lecture presences_enseignants securisee"
+  ON public.presences_enseignants FOR SELECT
+  TO authenticated
+  USING (
+    public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL', 'SURVEILLANT_GENERAL')
+    OR enseignant_id = auth.uid()
+  );
+
+-- 2. Insertion, mise à jour et suppression :
+--    - STRICTEMENT RÉSERVÉES AU CENSEUR, DG ET CONCEPTEUR !
+--    - Les enseignants ne peuvent JAMAIS modifier les enregistrements de présence
+CREATE POLICY "Gestion presences_enseignants reservee Censeur et DG"
+  ON public.presences_enseignants FOR ALL
+  TO authenticated
+  USING (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'))
+  WITH CHECK (public.get_current_role() IN ('CONCEPTEUR', 'CENSEUR', 'DIRECTEUR_GENERAL'));
+
+-- Index d'optimisation
+CREATE INDEX IF NOT EXISTS idx_inscriptions_eleve_annee ON public.inscriptions_eleves(eleve_id, annee_scolaire);
+CREATE INDEX IF NOT EXISTS idx_inscriptions_classe_annee ON public.inscriptions_eleves(classe_id, annee_scolaire);
+CREATE INDEX IF NOT EXISTS idx_affectations_annee ON public.affectations(annee_scolaire);
+CREATE INDEX IF NOT EXISTS idx_notes_annee ON public.notes(annee_scolaire);
+CREATE INDEX IF NOT EXISTS idx_periodes_annee ON public.periodes(annee_scolaire);
+CREATE INDEX IF NOT EXISTS idx_presences_enseignants_date ON public.presences_enseignants(date);
+CREATE INDEX IF NOT EXISTS idx_presences_enseignants_annee ON public.presences_enseignants(annee_scolaire);
+CREATE INDEX IF NOT EXISTS idx_presences_enseignants_enseignant ON public.presences_enseignants(enseignant_id);
+

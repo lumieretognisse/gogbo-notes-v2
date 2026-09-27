@@ -207,7 +207,9 @@ export function calculerBulletinEleve(
   matieres: Matiere[],
   notesEleve: Note[],
   effectifClasse: number,
-  affectations?: AffectationPedagogique[]
+  affectations?: AffectationPedagogique[],
+  totalAbsences?: number,
+  estAbandon?: boolean
 ): BulletinEleve {
   const matieresNotes: NoteSyntheseMatiere[] = [];
   let totalPoints = 0;
@@ -261,6 +263,8 @@ export function calculerBulletinEleve(
     moyenne_generale: moyenneGenerale,
     appreciation_generale: getAppreciation(moyenneGenerale),
     effectif_classe: effectifClasse,
+    total_absences: totalAbsences ?? 0,
+    est_abandon: estAbandon ?? false,
   };
 }
 
@@ -276,14 +280,26 @@ export function calculerClassementClasse(
   periode: Periode,
   matieres: Matiere[],
   notesClasse: Note[],
-  affectations?: AffectationPedagogique[]
+  affectations?: AffectationPedagogique[],
+  presencesMap?: Record<string, { totalAbsences: number; estAbandon: boolean }>
 ): { classement: ResultatClassementEleve[]; bulletinsMap: Record<string, BulletinEleve> } {
   const bulletinsMap: Record<string, BulletinEleve> = {};
 
   // 1. Calcul du bulletin pour chaque apprenant
   for (const el of eleves) {
     const elNotes = notesClasse.filter((n) => n.eleve_id === el.id);
-    const b = calculerBulletinEleve(el, classe, periode, matieres, elNotes, eleves.length, affectations);
+    const pInfo = presencesMap ? presencesMap[el.id] : undefined;
+    const b = calculerBulletinEleve(
+      el, 
+      classe, 
+      periode, 
+      matieres, 
+      elNotes, 
+      eleves.length, 
+      affectations,
+      pInfo?.totalAbsences,
+      pInfo?.estAbandon
+    );
     bulletinsMap[el.id] = b;
   }
 

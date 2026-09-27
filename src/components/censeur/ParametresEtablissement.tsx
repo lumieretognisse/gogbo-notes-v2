@@ -193,7 +193,7 @@ export const ParametresEtablissement: React.FC = () => {
             <div className="flex justify-end pt-2">
               <button
                 type="submit"
-                className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs shadow-xs transition-colors"
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer"
               >
                 <Save className="w-4 h-4" />
                 <span>Enregistrer les paramètres officiels</span>
@@ -202,6 +202,168 @@ export const ParametresEtablissement: React.FC = () => {
           )}
         </form>
       </div>
+
+      {/* Section Gestion Pluriannuelle & Ouverture de Nouvelle Année */}
+      <NouvelleAnneeSection />
+    </div>
+  );
+};
+
+const NouvelleAnneeSection: React.FC = () => {
+  const { currentUser, isCenseur, isDirecteur } = useAuth();
+  const [annees, setAnnees] = useState(storage.getAnneesScolaires());
+  const [libelle, setLibelle] = useState('2027–2028');
+  const [dateDebut, setDateDebut] = useState('2027-09-13');
+  const [dateFin, setDateFin] = useState('2028-06-30');
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  if (!isCenseur && !isDirecteur) return null;
+
+  const handleCreer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setMsg(null);
+    try {
+      const created = storage.createAnneeScolaire({ libelle, date_debut: dateDebut, date_fin: dateFin }, currentUser);
+      setAnnees(storage.getAnneesScolaires());
+      setMsg({ type: 'success', text: `✓ Année scolaire ${created.libelle} créée avec succès. Les trimestres et semestres correspondants ont été automatiquement générés.` });
+    } catch (err: unknown) {
+      setMsg({ type: 'error', text: err instanceof Error ? err.message : 'Erreur lors de la création.' });
+    }
+  };
+
+  const handleActiver = (anneeId: string) => {
+    if (!currentUser) return;
+    setMsg(null);
+    try {
+      const act = storage.setActiveAnneeScolaire(anneeId, currentUser);
+      setAnnees(storage.getAnneesScolaires());
+      setMsg({ type: 'success', text: `✓ Année scolaire active basculée sur : ${act.libelle}. L'année précédente est désormais clôturée et archivée.` });
+    } catch (err: unknown) {
+      setMsg({ type: 'error', text: err instanceof Error ? err.message : 'Erreur lors de l’activation.' });
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
+      <div className="flex items-center space-x-2 border-b border-slate-200 pb-3">
+        <Calendar className="w-5 h-5 text-emerald-700" />
+        <div>
+          <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+            Architecture Pluriannuelle — Registre des Années Scolaires
+          </h3>
+          <p className="text-xs text-slate-500">
+            Ouverture de nouveaux espaces scolaires annuels (2026–2027, 2027–2028, etc.) sans jamais écraser l'historique
+          </p>
+        </div>
+      </div>
+
+      {msg && (
+        <div className={`p-3 rounded-lg text-xs flex items-center space-x-2 ${msg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          {msg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />}
+          <span>{msg.text}</span>
+        </div>
+      )}
+
+      {/* Liste des années existantes */}
+      <div className="space-y-2">
+        <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+          Années scolaires enregistrées :
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          {annees.map((a) => (
+            <div
+              key={a.id}
+              className={`p-3 rounded-lg border text-xs flex flex-col justify-between space-y-2 ${
+                a.is_active
+                  ? 'bg-emerald-50/70 border-emerald-400 ring-1 ring-emerald-400'
+                  : a.statut === 'CLOTUREE'
+                  ? 'bg-slate-50 border-slate-200'
+                  : 'bg-blue-50/50 border-blue-200'
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-slate-900 text-sm">{a.libelle}</span>
+                  {a.is_active ? (
+                    <span className="bg-emerald-600 text-white font-bold text-[9px] px-1.5 py-0.5 rounded uppercase">
+                      Active
+                    </span>
+                  ) : a.statut === 'CLOTUREE' ? (
+                    <span className="bg-slate-200 text-slate-700 font-medium text-[9px] px-1.5 py-0.5 rounded uppercase">
+                      Clôturée
+                    </span>
+                  ) : (
+                    <span className="bg-blue-200 text-blue-800 font-medium text-[9px] px-1.5 py-0.5 rounded uppercase">
+                      À venir
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Du {a.date_debut} au {a.date_fin}
+                </p>
+              </div>
+
+              {!a.is_active && (
+                <button
+                  type="button"
+                  onClick={() => handleActiver(a.id)}
+                  className="w-full text-center py-1 px-2 rounded bg-slate-800 hover:bg-slate-900 text-white font-semibold text-[10px] transition-colors cursor-pointer"
+                >
+                  Définir comme année en cours
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Formulaire de création d'une nouvelle année */}
+      <form onSubmit={handleCreer} className="pt-4 border-t border-slate-200 space-y-3">
+        <div className="font-semibold text-xs text-slate-800">
+          Ouvrir une nouvelle année scolaire :
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div>
+            <label className="block text-slate-600 font-medium mb-1">Libellé (ex: 2027–2028)</label>
+            <input
+              type="text"
+              required
+              value={libelle}
+              onChange={(e) => setLibelle(e.target.value)}
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-bold"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-600 font-medium mb-1">Date de début</label>
+            <input
+              type="date"
+              required
+              value={dateDebut}
+              onChange={(e) => setDateDebut(e.target.value)}
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-600 font-medium mb-1">Date de fin</label>
+            <input
+              type="date"
+              required
+              value={dateFin}
+              onChange={(e) => setDateFin(e.target.value)}
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end pt-1">
+          <button
+            type="submit"
+            className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+          >
+            + Initialiser cette année scolaire
+          </button>
+        </div>
+      </form>
     </div>
   );
 };

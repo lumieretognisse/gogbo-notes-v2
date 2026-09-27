@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useAnnee } from '../../context/AnneeContext';
 import { storage } from '../../lib/storage';
 import { 
   getAppreciation, 
@@ -19,7 +20,8 @@ import {
   FileText,
   Calculator,
   RefreshCw,
-  CheckCheck
+  CheckCheck,
+  Calendar
 } from 'lucide-react';
 
 interface EspacePedagogiqueProps {
@@ -29,13 +31,15 @@ interface EspacePedagogiqueProps {
 type EvalInputKey = 'INTERROGATION_1' | 'INTERROGATION_2' | 'INTERROGATION_3' | 'DEVOIR_1' | 'DEVOIR_2';
 
 export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBulletin }) => {
-  const { currentUser, affectations } = useAuth();
-  const periodes = storage.getPeriodes();
-  const [selectedPeriodeId, setSelectedPeriodeId] = useState<string>(
-    storage.getActivePeriode().id
-  );
+  const { currentUser } = useAuth();
+  const { selectedAnnee, isArchive } = useAnnee();
+  const affectations = storage.getAffectationsByProfile(currentUser?.id || '', selectedAnnee.libelle);
+  const periodes = storage.getPeriodes().filter((p) => p.annee_scolaire === selectedAnnee.libelle);
+  const activePeriode = periodes.find((p) => p.is_active) || periodes[0] || storage.getActivePeriode();
 
-  // Attribution sélectionnée (anciennement affectation)
+  const [selectedPeriodeId, setSelectedPeriodeId] = useState<string>(activePeriode?.id || '');
+
+  // Attribution sélectionnée pour l'année visualisée
   const [selectedAffId, setSelectedAffId] = useState<string>(
     affectations.length > 0 ? affectations[0].id : ''
   );
@@ -47,14 +51,67 @@ export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBull
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [isEditingCoef, setIsEditingCoef] = useState(false);
+  const [newCoefValue, setNewCoefValue] = useState<number>(2);
 
-  const currentAff = affectations.find((a) => a.id === selectedAffId);
+  const currentAff = affectations.find((a) => a.id === selectedAffId) || affectations[0];
   const classe = currentAff ? storage.getClasseById(currentAff.classe_id) : undefined;
   const matiere = currentAff ? storage.getMatiereById(currentAff.matiere_id) : undefined;
   const periode = periodes.find((p) => p.id === selectedPeriodeId) || periodes[0];
 
-  // Élèves de la classe sélectionnée
-  const eleves: Eleve[] = classe ? storage.getElevesByClasse(classe.id) : [];
+  React.useEffect(() => {
+    if (affectations.length > 0) {
+      if (!affectations.some((a) => a.id === selectedAffId)) {
+        setSelectedAffId(affectations[0].id);
+      }
+    } else {
+      setSelectedAffId('');
+    }
+  }, [affectations, selectedAffId]);
+
+  // Noms des matières enseignées par cet enseignant
+  const teacherDisciplines = Array.from(
+    new Set(
+      affectations
+        .map((a) => storage.getMatiereById(a.matiere_id)?.nom)
+        .filter(Boolean)
+    )
+  ).join(' • ');
+
+  React.useEffect(() => {
+    if (matiere) {
+      setNewCoefValue(matiere.coefficient);
+    }
+  }, [matiere?.id, matiere?.coefficient]);
+
+  const handleSaveTeacherCoef = async () => {
+    if (!currentUser || !matiere || !currentAff) return;
+    if (isArchive) {
+      setStatusMessage({ type: 'error', text: 'Action refusée en consultation d’archive historique.' });
+      return;
+    }
+    if (isNaN(newCoefValue) || newCoefValue < 1 || newCoefValue > 10) {
+      setStatusMessage({ type: 'error', text: 'Le coefficient doit être compris entre 1 et 10.' });
+      return;
+    }
+    try {
+      await storage.updateMatiereAsync(matiere.id, { coefficient: Number(newCoefValue) }, currentUser);
+      setIsEditingCoef(false);
+      triggerRecalculationVisual();
+      setStatusMessage({
+        type: 'success',
+        text: `✓ Coefficient de votre discipline "${matiere.nom}" mis à jour (${newCoefValue}) pour vos attributions.`,
+      });
+    } catch (e: unknown) {
+      setStatusMessage({
+        type: 'error',
+        text: e instanceof Error ? e.message : 'Erreur lors de la modification du coefficient.',
+      });
+    }
+  };
+
+  // Élèves inscrits dans cette classe pour l'année scolaire visualisée
+  const eleves: Eleve[] = classe ? storage.getElevesByClasse(classe.id, selectedAnnee.libelle) : [];
 
   // Notes existantes pour cette attribution et cette période
   const existingNotes: Note[] = currentAff
@@ -216,10 +273,10 @@ export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBull
         <h2 className="text-xl font-bold text-slate-800 mb-2">Aucune attribution de classe active</h2>
         <p className="text-slate-600 text-sm mb-6 leading-relaxed">
           Votre compte (<strong>{currentUser?.prenom} {currentUser?.nom}</strong>, rôle : {currentUser?.role}) 
-          n'a pas encore d'attribution de classe ou de matière active pour l'année 2026–2027.
+          n'a pas encore d'attribution de classe ou de matière pour l'année scolaire <strong>{selectedAnnee.libelle}</strong>.
         </p>
-        <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-200">
-          La saisie des notes requiert une attribution de classe validée par le Censeur des Études.
+        <p className="text-xs text-slate-600 bg-amber-50 p-3 rounded-lg border border-amber-200 leading-relaxed">
+          Le Censeur des Études est seul responsable de l'attribution des classes et matières. Dès que le Censeur vous aura attribué vos classes, elles apparaîtront automatiquement ici pour vous permettre de saisir les notes.
         </p>
       </div>
     );
@@ -244,13 +301,23 @@ export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBull
               <span className="bg-emerald-500/20 text-emerald-300 text-xs px-2.5 py-0.5 rounded-full font-semibold border border-emerald-500/40">
                 Espace Pédagogique — Attributions de classe
               </span>
-              <span className="text-slate-300 text-xs">• Année 2026–2027</span>
+              <span className="text-slate-300 text-xs">• Année {selectedAnnee.libelle}</span>
+              {isArchive && (
+                <span className="bg-amber-500 text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                  Lecture seule (Archives)
+                </span>
+              )}
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold mt-1 text-white">
-              {currentUser?.prenom} {currentUser?.nom}
+            <h2 className="text-xl sm:text-2xl font-black mt-1 text-white flex flex-wrap items-center gap-2">
+              <span>{currentUser?.prenom} {currentUser?.nom}</span>
+              {teacherDisciplines && (
+                <span className="text-amber-400 font-bold text-base sm:text-lg">
+                  — {teacherDisciplines}
+                </span>
+              )}
             </h2>
             <p className="text-xs sm:text-sm text-emerald-200/90 mt-0.5">
-              Saisie séparée des 3 interrogations (I1, I2, I3) & 2 devoirs (D1, D2) • Calcul en temps réel
+              Saisie séparée des évaluations pour vos classes attribuées par le Censeur • Année {selectedAnnee.libelle}
             </p>
           </div>
 
@@ -272,14 +339,14 @@ export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBull
           </div>
         </div>
 
-        {/* Mes attributions de classe (Pills cliquables) */}
+        {/* Mes classes attribuées */}
         <div className="mt-5 pt-4 border-t border-emerald-700/40">
-          <div className="text-xs font-semibold text-emerald-300 uppercase tracking-wider mb-2 flex items-center space-x-1.5">
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Mes classes et matières attribuées :</span>
+          <div className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-2.5 flex items-center space-x-1.5">
+            <BookOpen className="w-4 h-4 text-amber-400" />
+            <span>Mes classes ({affectations.length}) :</span>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2.5">
             {affectations.map((aff) => {
               const cls = storage.getClasseById(aff.classe_id);
               const mat = storage.getMatiereById(aff.matiere_id);
@@ -293,19 +360,19 @@ export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBull
                     setNoteInputs({});
                     setStatusMessage(null);
                   }}
-                  className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-amber-400 text-slate-950 font-bold shadow-sm ring-2 ring-white/30'
-                      : 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-100 border border-emerald-700/50'
+                      ? 'bg-amber-400 text-slate-950 font-black shadow-md ring-2 ring-white/60 scale-[1.02]'
+                      : 'bg-emerald-950/80 hover:bg-emerald-900 text-emerald-100 border border-emerald-700/60 shadow-xs'
                   }`}
                 >
                   <span className="text-sm font-black">{cls?.nom}</span>
-                  <span className="opacity-80">|</span>
-                  <span className="truncate max-w-[150px]">{mat?.nom}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-normal ${
-                    isSelected ? 'bg-slate-900 text-amber-300' : 'bg-emerald-800 text-emerald-200'
+                  <span className="opacity-60">—</span>
+                  <span className="font-semibold">{mat?.nom}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                    isSelected ? 'bg-slate-950 text-amber-300' : 'bg-emerald-800 text-emerald-200'
                   }`}>
-                    Coef {mat?.coefficient}
+                    {aff.heures_hebdo}h
                   </span>
                 </button>
               );
@@ -333,7 +400,18 @@ export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBull
                     <span>{eleves.length} apprenants</span>
                   </span>
                   <span>•</span>
-                  <span>Coefficient : <strong className="text-slate-900">{matiere.coefficient}</strong></span>
+                  <span className="inline-flex items-center space-x-1.5">
+                    <span>Coefficient : <strong className="text-slate-900">{matiere.coefficient}</strong></span>
+                    {!isArchive && (
+                      <button
+                        onClick={() => setIsEditingCoef(!isEditingCoef)}
+                        className="text-[10px] text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-1.5 py-0.5 rounded font-bold cursor-pointer"
+                        title="Modifier le coefficient de ma propre matière dans cette attribution"
+                      >
+                        {isEditingCoef ? 'Fermer' : '✎ Modifier Coef'}
+                      </button>
+                    )}
+                  </span>
                   <span>•</span>
                   <span className="text-blue-700 font-medium">
                     Moy. Int. = (I1 + I2 + I3) ÷ 3
@@ -343,6 +421,32 @@ export const EspacePedagogique: React.FC<EspacePedagogiqueProps> = ({ onOpenBull
                     Moy. Matière = (Moy. Int. + D1 + D2) ÷ 3
                   </span>
                 </div>
+
+                {isEditingCoef && (
+                  <div className="mt-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-bold text-indigo-900">Nouveau Coefficient pour {matiere.nom} :</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={newCoefValue}
+                      onChange={(e) => setNewCoefValue(Number(e.target.value))}
+                      className="w-16 bg-white border border-slate-300 rounded px-2 py-0.5 font-bold text-slate-900 text-center"
+                    />
+                    <button
+                      onClick={handleSaveTeacherCoef}
+                      className="bg-indigo-700 hover:bg-indigo-800 text-white font-bold px-2.5 py-1 rounded text-xs cursor-pointer shadow-xs"
+                    >
+                      Enregistrer
+                    </button>
+                    <button
+                      onClick={() => setIsEditingCoef(false)}
+                      className="text-slate-600 hover:text-slate-800 text-xs px-2 py-1"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

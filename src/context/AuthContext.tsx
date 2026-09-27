@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, AffectationPedagogique } from '../types';
 import { storage } from '../lib/storage';
+import { isSupabaseConfigured, getSupabaseClient } from '../lib/supabase';
 
 interface AuthContextType {
   currentUser: UserProfile | null;
@@ -13,8 +14,18 @@ interface AuthContextType {
   refreshUserData: () => void;
   updateMyEmail: (newEmail: string) => Promise<{ success: boolean; error?: string }>;
   updateMyPassword: (oldPass: string, newPass: string) => Promise<{ success: boolean; error?: string }>;
+  resetPassword: (emailOrId: string, newPass: string) => Promise<{ success: boolean; error?: string }>;
+  updateMyProfile: (data: {
+    nom: string;
+    prenom: string;
+    adresse?: string;
+    telephone?: string;
+    matiere?: string;
+    email: string;
+  }) => Promise<{ success: boolean; error?: string; profile?: UserProfile }>;
   isCenseur: boolean;
   isDirecteur: boolean;
+  isConcepteur: boolean;
   isSurveillant: boolean;
   isComptable: boolean;
   hasPedagogicalAssignments: boolean;
@@ -58,8 +69,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, pass: string, portalTarget?: 'ADMIN' | 'ENSEIGNANT'): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
     try {
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanPass = pass.trim();
+
+      // Tentative Supabase Auth si configuré
+      if (isSupabaseConfigured) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password: cleanPass,
+            });
+          } catch (e) {
+            console.warn('Supabase Auth signIn notice:', e);
+          }
+        }
+      }
+
       const profiles = storage.getProfiles();
-      const user = profiles.find((p) => p.email.toLowerCase() === email.trim().toLowerCase());
+      const user = profiles.find((p) => p.email.toLowerCase() === cleanEmail);
 
       // 1. Vérification de l'existence de l'identifiant et du mot de passe
       if (!user) {
@@ -67,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'Identifiant ou mot de passe incorrect.' };
       }
 
-      const isPasswordValid = storage.verifyUserPassword(user.id, pass);
+      const isPasswordValid = storage.verifyUserPassword(user.id, cleanPass);
       if (!isPasswordValid) {
         setIsLoading(false);
         return { success: false, error: 'Identifiant ou mot de passe incorrect.' };
@@ -78,9 +107,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'Ce compte a été désactivé par l’administration.' };
       }
 
-      // 2. Contrôle de séparation des portails (Exigence 2, 3 & 4)
+      // 2. Contrôle de séparation des portails (Exigences officielles)
       if (portalTarget === 'ADMIN') {
-        const adminRoles = ['DIRECTEUR_GENERAL', 'CENSEUR', 'SURVEILLANT_GENERAL', 'COMPTABLE'];
+        const adminRoles = ['DIRECTEUR_GENERAL', 'CENSEUR', 'CONCEPTEUR', 'SURVEILLANT_GENERAL', 'COMPTABLE'];
         if (!adminRoles.includes(user.role)) {
           setIsLoading(false);
           return {
@@ -89,8 +118,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
       } else if (portalTarget === 'ENSEIGNANT') {
-        // Double casquette : Censeur enseignant ou DG enseignant ou Enseignant titulaire
-        const canTeach = user.is_enseignant || user.role === 'ENSEIGNANT';
+        // Double casquette : Enseignant titulaire, Censeur enseignant, DG enseignant ou affectations actives
+        const hasAffectations = storage.getAffectationsByProfile(user.id).length > 0;
+        const canTeach = user.is_enseignant || user.role === 'ENSEIGNANT' || hasAffectations;
         if (!canTeach) {
           setIsLoading(false);
           return {
@@ -118,6 +148,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
       return { success: false, error: 'Une erreur est survenue lors de l’authentification.' };
     }
+  };
+
+  const resetPassword = async (emailOrId: string, newPass: string): Promise<{ success: boolean; error?: string }> => {
+    return storage.resetUserPassword(emailOrId, newPass);
   };
 
   const logout = () => {
@@ -150,6 +184,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return storage.updateUserPassword(currentUser.id, oldPass, newPass);
   };
 
+  const updateMyProfile = async (data: {
+    nom: string;
+    prenom: string;
+    adresse?: string;
+    telephone?: string;
+    matiere?: string;
+    email: string;
+  }): Promise<{ success: boolean; error?: string; profile?: UserProfile }> => {
+    if (!currentUser) return { success: false, error: 'Aucun utilisateur connecté.' };
+    const res = storage.updateMyProfile(currentUser.id, data, currentUser);
+    if (res.success && res.profile) {
+      setCurrentUser(res.profile);
+      loadUserData(res.profile.id);
+    }
+    return res;
+  };
+
   const switchUser = (profileId: string) => {
     localStorage.setItem(CURRENT_USER_KEY, profileId);
     loadUserData(profileId);
@@ -161,8 +212,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isCenseur = currentUser?.role === 'CENSEUR';
+  // Le Concepteur / Super Administrateur dispose des mêmes droits fonctionnels que le Censeur
+  const isCenseur = currentUser?.role === 'CENSEUR' || currentUser?.role === 'CONCEPTEUR';
   const isDirecteur = currentUser?.role === 'DIRECTEUR_GENERAL';
+  const isConcepteur = currentUser?.role === 'CONCEPTEUR';
   const isSurveillant = currentUser?.role === 'SURVEILLANT_GENERAL';
   const isComptable = currentUser?.role === 'COMPTABLE';
   const hasPedagogicalAssignments = affectations.length > 0;
@@ -180,8 +233,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshUserData,
         updateMyEmail,
         updateMyPassword,
+        resetPassword,
+        updateMyProfile,
         isCenseur,
         isDirecteur,
+        isConcepteur,
         isSurveillant,
         isComptable,
         hasPedagogicalAssignments,

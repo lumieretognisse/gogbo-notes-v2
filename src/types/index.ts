@@ -1,4 +1,5 @@
 export type RoleAdmin = 
+  | 'CONCEPTEUR'
   | 'DIRECTEUR_GENERAL'
   | 'CENSEUR'
   | 'SURVEILLANT_GENERAL'
@@ -21,6 +22,8 @@ export interface UserProfile {
   role: RoleAdmin;
   is_enseignant: boolean; // Directeur, Censeur, SG ou Comptable peuvent aussi enseigner
   telephone?: string;
+  adresse?: string; // Résidence / Adresse
+  matiere?: string; // Matière / Discipline
   statut: StatutCompte;
   created_at: string;
   updated_at: string;
@@ -42,6 +45,8 @@ export interface Classe {
   serie?: 'A' | 'AB' | 'C' | 'D' | 'Scientifique' | 'Littéraire' | 'Générale';
   effectif_max: number; // Always 100 max
   salle?: string;
+  annee_scolaire?: string;
+  statut?: StatutCompte;
 }
 
 export interface Matiere {
@@ -52,6 +57,7 @@ export interface Matiere {
   statut: StatutCompte;
   is_langue_option: boolean; // Allemand / Espagnol
   categorie: 'LITTERAIRE' | 'SCIENTIFIQUE' | 'GENERALE' | 'CONDUITE';
+  annee_scolaire?: string;
 }
 
 export interface Eleve {
@@ -62,11 +68,24 @@ export interface Eleve {
   sexe: Sexe;
   date_naissance: string; // YYYY-MM-DD
   lieu_naissance?: string;
-  classe_id: string;
+  classe_id: string; // Classe courante / par défaut
   langue_vivante_2: LangueOption;
   nom_parent?: string;
   contact_parent?: string;
   statut: StatutCompte;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InscriptionEleve {
+  id: string;
+  eleve_id: string;
+  classe_id: string;
+  annee_scolaire: string; // Ex: "2026–2027", "2027–2028"
+  statut: StatutCompte;
+  date_inscription: string;
+  redoublant?: boolean;
+  actif: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +118,7 @@ export interface AffectationPedagogique {
   profile_id: string; // L'utilisateur enseignant (ou Censeur/DG qui enseigne)
   classe_id: string;
   matiere_id: string;
+  annee_scolaire: string; // Ex: "2026–2027", "2027–2028"
   heures_hebdo: number;
   statut: StatutCompte;
   created_at: string;
@@ -121,6 +141,7 @@ export interface Note {
   eleve_id: string;
   affectation_id: string;
   periode_id: string;
+  annee_scolaire?: string; // Rattachée directement à l'année scolaire
   valeur: number; // 0 à 20
   type_evaluation: TypeEvaluation;
   saisi_par: string; // User ID
@@ -159,6 +180,8 @@ export interface BulletinEleve {
   rang_label?: string; // "1er", "2ème", etc.
   effectif_classe: number;
   observation_directeur?: string;
+  total_absences?: number;
+  est_abandon?: boolean;
 }
 
 export interface ResultatClassementEleve {
@@ -236,3 +259,68 @@ export interface AuditLog {
   details?: string;
   created_at: string;
 }
+
+export type StatutPresence = 'PRESENT' | 'ABSENT' | 'ABANDON';
+
+export interface EnregistrementPresence {
+  id: string;
+  annee_scolaire: string; // Ex: "2026–2027"
+  classe_id: string;
+  eleve_id: string;
+  date: string; // YYYY-MM-DD
+  statut: StatutPresence;
+  motif?: string;
+  enregistre_par_id: string;
+  enregistre_par_nom: string;
+  date_saisie: string;
+  periode_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type TranchePaiement = 'TRANCHE_1' | 'TRANCHE_2' | 'TRANCHE_3' | 'SOLDE_TOTAL';
+export type StatutPaiement = 'NON_SOLDE' | 'PARTIEL' | 'SOLDE';
+export type ModePaiement = 'ESPECES' | 'MOBILE_MONEY' | 'VIREMENT_BANCAIRE' | 'CHEQUE';
+
+export interface PaiementContribution {
+  id: string;
+  numero_recu: string;
+  annee_scolaire: string; // Ex: "2026–2027"
+  eleve_id: string;
+  classe_id: string;
+  tranche: TranchePaiement;
+  montant_paye: number;
+  montant_total_exige: number;
+  reste_a_payer: number;
+  statut_paiement: StatutPaiement;
+  mode_paiement: ModePaiement;
+  reference_recu?: string;
+  observation?: string;
+  enregistre_par_id: string;
+  enregistre_par_nom: string;
+  date_paiement: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ====================================================================
+// MODULE : PRÉSENCE JOURNALIÈRE DES ENSEIGNANTS (RÉSERVÉ AU CENSEUR)
+// ====================================================================
+export type StatutPresenceEnseignant = 'PRESENT' | 'RETARD' | 'ABSENCE' | 'PERMISSION';
+
+export interface PresenceEnseignant {
+  id: string;
+  annee_scolaire: string; // Ex: "2026–2027"
+  date: string; // YYYY-MM-DD
+  enseignant_id: string;
+  enseignant_nom: string;
+  matieres_attribuees?: string; // Matières attribuées au moment de la saisie (conservation historique fidèle)
+  statut: StatutPresenceEnseignant;
+  motif?: string; // Maladie, Permission administrative, Mission, Raisons personnelles, Retard justifié, Autre ou texte libre
+  heure_arrivee?: string; // Ex: "07:45", "08:15" (notamment pour retard)
+  enregistre_par_id: string;
+  enregistre_par_nom: string;
+  created_at: string;
+  updated_at: string;
+}
+

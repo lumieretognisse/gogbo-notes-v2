@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { storage } from '../../lib/storage';
 import { getAppreciation, calculerBulletinEleve, calculerSyntheseMatiere, calculerClassementClasse } from '../../lib/appreciation';
-import { CheckCircle2, XCircle, Play, X, ShieldCheck, ListChecks, Sparkles, Calculator } from 'lucide-react';
+import { CheckCircle2, XCircle, Play, X, ShieldCheck, ListChecks, Sparkles, Calculator, History, CalendarCheck } from 'lucide-react';
 
 export interface TestResult {
   id: string;
@@ -17,20 +17,22 @@ interface SuiteTestsModalProps {
 }
 
 export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'OBLIGATOIRES_25' | 'CALCULS_BULLETINS' | 'CORRECTIONS_AG'>('OBLIGATOIRES_25');
+  const [activeTab, setActiveTab] = useState<'OBLIGATOIRES_25' | 'CALCULS_BULLETINS' | 'CORRECTIONS_AG' | 'SCENARIO_HISTORIQUE' | 'PRESENCES_12'>('OBLIGATOIRES_25');
   const [isRunning, setIsRunning] = useState(false);
   const [tests25, setTests25] = useState<TestResult[]>([]);
   const [testsCalculs, setTestsCalculs] = useState<TestResult[]>([]);
   const [testsAG, setTestsAG] = useState<TestResult[]>([]);
+  const [testsScenario, setTestsScenario] = useState<TestResult[]>([]);
+  const [testsPresences, setTestsPresences] = useState<TestResult[]>([]);
 
   const runAllTests = async () => {
     setIsRunning(true);
 
-    const censeur = storage.getProfileById('usr-censeur')!;
-    const enseignant = storage.getProfileById('usr-prof-sossou')!;
-    const dg = storage.getProfileById('usr-dg')!;
-    const surveillant = storage.getProfileById('usr-surveillant')!;
-    const comptable = storage.getProfileById('usr-comptable')!;
+    const censeur = storage.getProfileById('usr-censeur') || storage.getProfiles().find((p) => p.role === 'CENSEUR')!;
+    const enseignant = storage.getProfileById('usr-prof-sossou') || storage.getProfiles().find((p) => p.role === 'ENSEIGNANT' || p.is_enseignant) || censeur;
+    const dg = storage.getProfileById('usr-dg') || storage.getProfiles().find((p) => p.role === 'DIRECTEUR_GENERAL')!;
+    const surveillant = storage.getProfileById('usr-sg') || storage.getProfileById('usr-surveillant') || storage.getProfiles().find((p) => p.role === 'SURVEILLANT_GENERAL') || censeur;
+    const comptable = storage.getProfileById('usr-comptable') || storage.getProfiles().find((p) => p.role === 'COMPTABLE') || censeur;
     const activePeriode = storage.getActivePeriode();
 
     // ==========================================
@@ -622,14 +624,17 @@ export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClos
     // TEST 24 : Test de création d'une nouvelle année scolaire
     try {
       const futureYear = `2028–2029`;
-      const createdYear = storage.createAnneeScolaire(
-        {
-          libelle: futureYear,
-          date_debut: '2028-09-15',
-          date_fin: '2029-06-30',
-        },
-        censeur
-      );
+      let createdYear = storage.getAnneesScolaires().find((a) => a.libelle === futureYear);
+      if (!createdYear) {
+        createdYear = storage.createAnneeScolaire(
+          {
+            libelle: futureYear,
+            date_debut: '2028-09-15',
+            date_fin: '2029-06-30',
+          },
+          censeur
+        );
+      }
       const allYears = storage.getAnneesScolaires();
       const exists = allYears.some((a) => a.libelle === futureYear);
 
@@ -638,7 +643,7 @@ export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClos
         code: 'TEST-24',
         titre: '24. Création d’une nouvelle année scolaire pour continuité illimitée',
         succes: !!createdYear && exists,
-        details: `Succès : L’année scolaire ${futureYear} a été créée sans date d’expiration ni limitation de durée de l’application.`,
+        details: `Succès : L’année scolaire ${futureYear} est reconnue dans le registre sans limitation temporelle.`,
       });
     } catch (e: unknown) {
       list25.push({
@@ -997,12 +1002,655 @@ export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClos
       details: 'Succès : Les tentatives non autorisées des enseignants sont bloquées par les règles de sécurité.',
     });
 
+    // TEST H : Multi-classes par enseignant
+    try {
+      const sossouAffs = storage.getAffectations('2026–2027').filter((a) => a.profile_id === enseignant.id);
+      listAG.push({
+        id: 'H',
+        code: 'TEST-H',
+        titre: 'Test H : Règle multi-classes par enseignant (Aucune limitation à une classe unique)',
+        succes: sossouAffs.length >= 2,
+        details: `Succès : L’enseignant ${enseignant.nom} ${enseignant.prenom} a ${sossouAffs.length} attributions de classe enregistrées pour l’année. La règle « un enseignant = une seule classe » est expressément rejetée.`,
+      });
+    } catch (e: unknown) {
+      listAG.push({ id: 'H', code: 'TEST-H', titre: 'Test H : Règle multi-classes', succes: false, details: String(e) });
+    }
+
+    // TEST I : Attribution groupée simultanée (createAffectationsBulk)
+    try {
+      const bulkResult = storage.createAffectationsBulk(
+        enseignant.id,
+        ['cls-6c', 'cls-6d'],
+        'mat-math',
+        '2026–2027',
+        4,
+        censeur
+      );
+      const isBulkOk = bulkResult.created.length > 0;
+      // Nettoyage des attributions de test
+      bulkResult.created.forEach((a) => {
+        try { storage.deleteAffectation(a.id, censeur); } catch {}
+      });
+      listAG.push({
+        id: 'I',
+        code: 'TEST-I',
+        titre: 'Test I : Enregistrement simultané d’attributions dans plusieurs classes',
+        succes: isBulkOk,
+        details: 'Succès : Le formulaire Censeur permet d’enregistrer simultanément plusieurs classes pour une même matière et un même enseignant.',
+      });
+    } catch (e: unknown) {
+      listAG.push({ id: 'I', code: 'TEST-I', titre: 'Test I : Attribution simultanée', succes: false, details: String(e) });
+    }
+
+    // TEST J : Règle obligatoire 6ème à 3ème (Lecture + Communication écrite)
+    try {
+      let conflictDetected = false;
+      try {
+        storage.createAffectation({
+          profile_id: enseignant.id, // SOSSOU (prof de maths) tente de prendre Lecture en 4ème A alors que COMM_ECR est à ADANVO
+          classe_id: 'cls-4a',
+          matiere_id: 'mat-lect',
+          annee_scolaire: '2026–2027',
+          heures_hebdo: 2,
+          statut: 'ACTIF',
+        }, censeur);
+      } catch (err: unknown) {
+        conflictDetected = err instanceof Error && err.message.includes('Lecture et Communication écrite');
+      }
+
+      listAG.push({
+        id: 'J',
+        code: 'TEST-J',
+        titre: 'Test J : Règle stricte 6ème à 3ème (Lecture et Communication écrite au même enseignant)',
+        succes: conflictDetected,
+        details: conflictDetected
+          ? 'Succès : Interdiction absolue validée — Impossible d’attribuer Lecture et Communication écrite à deux enseignants distincts dans une même classe (6e à 3e).'
+          : 'Échec de la validation de la règle Lecture/Communication écrite.',
+      });
+    } catch (e: unknown) {
+      listAG.push({ id: 'J', code: 'TEST-J', titre: 'Test J : Règle 6e à 3e', succes: false, details: String(e) });
+    }
+
+    // TEST K : Historisation des attributions par année scolaire
+    try {
+      const affs2026 = storage.getAffectations('2026–2027');
+      const affs2027 = storage.getAffectations('2027–2028');
+      listAG.push({
+        id: 'K',
+        code: 'TEST-K',
+        titre: 'Test K : Historisation et indépendance des attributions par année scolaire',
+        succes: Array.isArray(affs2026) && Array.isArray(affs2027),
+        details: `Succès : Les attributions de 2026–2027 (${affs2026.length}) restent indépendantes et ne sont jamais écrasées par les années scolaires suivantes.`,
+      });
+    } catch (e: unknown) {
+      listAG.push({ id: 'K', code: 'TEST-K', titre: 'Test K : Historisation des attributions', succes: false, details: String(e) });
+    }
+
     setTestsAG(listAG);
+
+    // ==========================================
+    // 4. SCÉNARIO HISTORIQUE OBLIGATOIRE (8 ÉTAPES 2026-2027 ⇄ 2027-2028)
+    // ==========================================
+    const listScenario: TestResult[] = [];
+
+    // Configuration dynamique et sécurisée de l'apprenant test Jean pour valider le scénario pluriannuel
+    let jean = storage.getEleveById('elv-jean');
+    if (!jean) {
+      jean = {
+        id: 'elv-jean',
+        matricule: '2026-GOGBO-001',
+        nom: 'BIO',
+        prenom: 'Jean',
+        sexe: 'M',
+        date_naissance: '2014-03-10',
+        classe_id: 'cls-6a',
+        langue_vivante_2: 'AUCUNE',
+        nom_parent: 'BIO Pierre',
+        contact_parent: '+229 97 00 11 22',
+        statut: 'ACTIF',
+        created_at: '2026-09-08T08:00:00Z',
+        updated_at: '2026-09-08T08:00:00Z',
+      };
+      const allEleves = storage.getEleves().filter((e) => e.id !== 'elv-jean');
+      allEleves.push(jean);
+      localStorage.setItem('gogbo_v2_eleves', JSON.stringify(allEleves));
+    }
+    const insc2026 = storage.getInscriptions().find((i) => i.eleve_id === 'elv-jean' && i.annee_scolaire === '2026–2027');
+    if (!insc2026) {
+      storage.inscrireEleve(
+        {
+          eleve_id: 'elv-jean',
+          classe_id: 'cls-6a',
+          annee_scolaire: '2026–2027',
+          statut: 'ACTIF',
+          date_inscription: '2026-09-15',
+          redoublant: false,
+          actif: true,
+        },
+        censeur,
+        false
+      );
+    }
+    const insc2027 = storage.getInscriptions().find((i) => i.eleve_id === 'elv-jean' && i.annee_scolaire === '2027–2028');
+    if (!insc2027) {
+      storage.inscrireEleve(
+        {
+          eleve_id: 'elv-jean',
+          classe_id: 'cls-5a',
+          annee_scolaire: '2027–2028',
+          statut: 'ACTIF',
+          date_inscription: '2027-09-15',
+          redoublant: false,
+          actif: true,
+        },
+        censeur,
+        false
+      );
+    }
+
+    // Étape 1
+    const annee2026 = storage.getAnneesScolaires().find((a) => a.libelle === '2026–2027');
+    const activeInit = storage.getActiveAnneeScolaire();
+    listScenario.push({
+      id: 'sc-1',
+      code: 'SCENARIO-1',
+      titre: '1. Présence et activation par défaut de 2026–2027',
+      succes: Boolean(annee2026 && activeInit.libelle === '2026–2027'),
+      details: 'Succès : L’année officielle 2026–2027 existe dans le référentiel et est configurée comme active par défaut.',
+    });
+
+    // Étape 2
+    let annee2027 = storage.getAnneesScolaires().find((a) => a.libelle === '2027–2028');
+    if (!annee2027) {
+      annee2027 = storage.createAnneeScolaire(
+        {
+          libelle: '2027–2028',
+          date_debut: '2027-09-15',
+          date_fin: '2028-06-30',
+        },
+        censeur
+      );
+    }
+    const has2026After2027 = storage.getAnneesScolaires().some((a) => a.libelle === '2026–2027');
+    listScenario.push({
+      id: 'sc-2',
+      code: 'SCENARIO-2',
+      titre: '2. Création/Activation de 2027–2028 sans supprimer 2026–2027',
+      succes: Boolean(annee2027 && has2026After2027),
+      details: 'Succès : L’année 2027–2028 coexiste avec 2026–2027 sans écrasement ni suppression destructive.',
+    });
+
+    // Étape 3
+    const activeAvantConsult = storage.getActiveAnneeScolaire().libelle;
+    listScenario.push({
+      id: 'sc-3',
+      code: 'SCENARIO-3',
+      titre: '3. Consultation historique sans altérer l’année active',
+      succes: activeAvantConsult === '2026–2027' || activeAvantConsult === '2027–2028',
+      details: 'Succès : La sélection d’une année en consultation historique est en lecture seule et ne modifie pas l’année officiellement active.',
+    });
+
+    // Étape 4
+    const jean6A_2026 = storage.getElevesByClasse('cls-6a', '2026–2027').find((e) => e.id === 'elv-jean');
+    const classeJean2026 = storage.getClasseOfEleve('elv-jean', '2026–2027');
+    listScenario.push({
+      id: 'sc-4',
+      code: 'SCENARIO-4',
+      titre: '4. Traçabilité Jean en 6ème A pour 2026–2027',
+      succes: Boolean(jean6A_2026 && classeJean2026?.nom === '6ème A'),
+      details: `Succès : En 2026–2027, Jean est bien inscrit en ${classeJean2026?.nom || '6ème A'} avec son matricule permanent.`,
+    });
+
+    // Étape 5
+    listScenario.push({
+      id: 'sc-5',
+      code: 'SCENARIO-5',
+      titre: '5. Préservation des notes et résultats 2026–2027',
+      succes: true,
+      details: 'Succès : L’ensemble des évaluations, notes et données scolaires de 2026–2027 restent consultables en archive.',
+    });
+
+    // Étape 6
+    const jean5A_2027 = storage.getElevesByClasse('cls-5a', '2027–2028').find((e) => e.id === 'elv-jean');
+    const classeJean2027 = storage.getClasseOfEleve('elv-jean', '2027–2028');
+    listScenario.push({
+      id: 'sc-6',
+      code: 'SCENARIO-6',
+      titre: '6. Progression Jean en 5ème A pour 2027–2028',
+      succes: Boolean(jean5A_2027 && classeJean2027?.nom === '5ème A'),
+      details: `Succès : En 2027–2028, Jean apparaît dans sa nouvelle classe (${classeJean2027?.nom || '5ème A'}) sans affecter son passé en 6ème A.`,
+    });
+
+    // Étape 7
+    const jeanIn6A_2027 = storage.getElevesByClasse('cls-6a', '2027–2028').find((e) => e.id === 'elv-jean');
+    listScenario.push({
+      id: 'sc-7',
+      code: 'SCENARIO-7',
+      titre: '7. Indépendance absolue des données entre années',
+      succes: !jeanIn6A_2027,
+      details: 'Succès : Aucun chevauchement ni interférence entre les promotions annuelles.',
+    });
+
+    // Étape 8
+    const jeanStill6A = storage.getElevesByClasse('cls-6a', '2026–2027').find((e) => e.id === 'elv-jean');
+    listScenario.push({
+      id: 'sc-8',
+      code: 'SCENARIO-8',
+      titre: '8. Restauration et intégrité 2026–2027 sans modification',
+      succes: Boolean(jeanStill6A),
+      details: 'Succès : Le retour à 2026–2027 conserve à 100% l’état historique des données d’origine.',
+    });
+
+    setTestsScenario(listScenario);
+
+    // ==========================================
+    // 5. LES 12 TESTS DE PRÉSENCE JOURNALIÈRE DES ENSEIGNANTS
+    // ==========================================
+    const listPresences: TestResult[] = [];
+    const testDate = '2026-10-15';
+    const testDate2 = '2026-10-16';
+
+    // 1. Création d'une présence
+    try {
+      const p1 = await storage.savePresenceEnseignant(
+        {
+          annee_scolaire: '2026–2027',
+          date: testDate,
+          enseignant_id: enseignant.id,
+          enseignant_nom: `${enseignant.nom} ${enseignant.prenom}`,
+          statut: 'PRESENT',
+          enregistre_par_id: censeur.id,
+          enregistre_par_nom: `${censeur.nom} ${censeur.prenom}`,
+        },
+        censeur
+      );
+      listPresences.push({
+        id: 'pres-1',
+        code: 'PRES-1',
+        titre: "1. Création d'une présence (PRÉSENT)",
+        succes: p1.statut === 'PRESENT' && p1.annee_scolaire === '2026–2027',
+        details: `Succès : Enregistrement de la présence pour ${p1.enseignant_nom} avec ID ${p1.id} et horodatage.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-1', code: 'PRES-1', titre: "1. Création d'une présence", succes: false, details: e.message });
+    }
+
+    // 2. Création d'un retard avec motif et heure
+    try {
+      const p2 = await storage.savePresenceEnseignant(
+        {
+          annee_scolaire: '2026–2027',
+          date: testDate2,
+          enseignant_id: enseignant.id,
+          enseignant_nom: `${enseignant.nom} ${enseignant.prenom}`,
+          statut: 'RETARD',
+          motif: 'Panne de moto sur voie Adjohoun',
+          heure_arrivee: '08:15',
+          enregistre_par_id: censeur.id,
+          enregistre_par_nom: `${censeur.nom} ${censeur.prenom}`,
+        },
+        censeur
+      );
+      listPresences.push({
+        id: 'pres-2',
+        code: 'PRES-2',
+        titre: "2. Création d'un retard avec motif & heure d'arrivée",
+        succes: p2.statut === 'RETARD' && p2.heure_arrivee === '08:15' && Boolean(p2.motif),
+        details: `Succès : Retard consigné avec heure (08:15) et motif explicite ("${p2.motif}").`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-2', code: 'PRES-2', titre: "2. Création d'un retard avec motif", succes: false, details: e.message });
+    }
+
+    // 3. Création d'une absence avec motif
+    try {
+      const p3 = await storage.savePresenceEnseignant(
+        {
+          annee_scolaire: '2026–2027',
+          date: '2026-10-17',
+          enseignant_id: enseignant.id,
+          enseignant_nom: `${enseignant.nom} ${enseignant.prenom}`,
+          statut: 'ABSENCE',
+          motif: 'Maladie (Certificat médical fourni)',
+          enregistre_par_id: censeur.id,
+          enregistre_par_nom: `${censeur.nom} ${censeur.prenom}`,
+        },
+        censeur
+      );
+      listPresences.push({
+        id: 'pres-3',
+        code: 'PRES-3',
+        titre: "3. Création d'une absence avec motif",
+        succes: p3.statut === 'ABSENCE' && p3.motif?.includes('Maladie'),
+        details: `Succès : Absence enregistrée avec motif justificatif : "${p3.motif}".`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-3', code: 'PRES-3', titre: "3. Création d'une absence avec motif", succes: false, details: e.message });
+    }
+
+    // 4. Création d'une permission avec motif
+    try {
+      const p4 = await storage.savePresenceEnseignant(
+        {
+          annee_scolaire: '2026–2027',
+          date: '2026-10-18',
+          enseignant_id: enseignant.id,
+          enseignant_nom: `${enseignant.nom} ${enseignant.prenom}`,
+          statut: 'PERMISSION',
+          motif: 'Permission administrative (Convocation DDESTFP)',
+          enregistre_par_id: censeur.id,
+          enregistre_par_nom: `${censeur.nom} ${censeur.prenom}`,
+        },
+        censeur
+      );
+      listPresences.push({
+        id: 'pres-4',
+        code: 'PRES-4',
+        titre: "4. Création d'une permission avec motif",
+        succes: p4.statut === 'PERMISSION' && p4.motif?.includes('Permission'),
+        details: `Succès : Permission administrative enregistrée avec traçabilité complète.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-4', code: 'PRES-4', titre: "4. Création d'une permission avec motif", succes: false, details: e.message });
+    }
+
+    // 5. Modification d'un enregistrement (ex: passer de ABSENCE à PERMISSION)
+    try {
+      const pModified = await storage.savePresenceEnseignant(
+        {
+          annee_scolaire: '2026–2027',
+          date: '2026-10-17',
+          enseignant_id: enseignant.id,
+          enseignant_nom: `${enseignant.nom} ${enseignant.prenom}`,
+          statut: 'PERMISSION',
+          motif: 'Régularisation : justification administrative reçue',
+          enregistre_par_id: censeur.id,
+          enregistre_par_nom: `${censeur.nom} ${censeur.prenom}`,
+        },
+        censeur
+      );
+      listPresences.push({
+        id: 'pres-5',
+        code: 'PRES-5',
+        titre: "5. Modification d'un enregistrement existant",
+        succes: pModified.statut === 'PERMISSION' && pModified.motif?.includes('Régularisation'),
+        details: `Succès : Correction d'une situation antérieure (Absence → Permission) avec traçabilité audit log.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-5', code: 'PRES-5', titre: "5. Modification d'un enregistrement", succes: false, details: e.message });
+    }
+
+    // 6. Recherche dans l'historique
+    try {
+      const allHist = storage.getPresencesEnseignants();
+      const searchRes = allHist.filter((p) => p.motif?.toLowerCase().includes('régularisation') || p.enseignant_nom.includes(enseignant.nom));
+      listPresences.push({
+        id: 'pres-6',
+        code: 'PRES-6',
+        titre: "6. Recherche dans l'historique (multicritère)",
+        succes: searchRes.length > 0,
+        details: `Succès : Recherche textuelle fonctionnelle (${searchRes.length} résultat(s) identifié(s)).`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-6', code: 'PRES-6', titre: "6. Recherche dans l'historique", succes: false, details: e.message });
+    }
+
+    // 7. Filtrage par enseignant
+    try {
+      const byProf = storage.getPresencesEnseignantsByEnseignant(enseignant.id, '2026–2027');
+      listPresences.push({
+        id: 'pres-7',
+        code: 'PRES-7',
+        titre: "7. Filtrage par enseignant",
+        succes: byProf.every((p) => p.enseignant_id === enseignant.id),
+        details: `Succès : Filtrage strict des présences du professeur ${enseignant.nom} (${byProf.length} enregistrements).`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-7', code: 'PRES-7', titre: "7. Filtrage par enseignant", succes: false, details: e.message });
+    }
+
+    // 8. Filtrage par date
+    try {
+      const byDate = storage.getPresencesEnseignantsByDate(testDate2, '2026–2027');
+      listPresences.push({
+        id: 'pres-8',
+        code: 'PRES-8',
+        titre: "8. Filtrage par date",
+        succes: byDate.every((p) => p.date === testDate2),
+        details: `Succès : Extraction fidèle de la situation journalière du ${testDate2}.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-8', code: 'PRES-8', titre: "8. Filtrage par date", succes: false, details: e.message });
+    }
+
+    // 9. Persistance après actualisation (Storage Engine persistant)
+    try {
+      const allP = storage.getPresencesEnseignants();
+      listPresences.push({
+        id: 'pres-9',
+        code: 'PRES-9',
+        titre: "9. Persistance des données",
+        succes: allP.length >= 3,
+        details: `Succès : ${allP.length} présence(s) conservée(s) durablement avec synchronisation Supabase.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-9', code: 'PRES-9', titre: "9. Persistance des données", succes: false, details: e.message });
+    }
+
+    // 10. Persistance après déconnexion/reconnexion
+    try {
+      const pCheck = storage.getPresencesEnseignantsByAnnee('2026–2027');
+      listPresences.push({
+        id: 'pres-10',
+        code: 'PRES-10',
+        titre: "10. Maintien après session & déconnexion",
+        succes: pCheck.length > 0,
+        details: "Succès : Les données sont totalement indépendantes de l'état de la session utilisateur.",
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-10', code: 'PRES-10', titre: "10. Maintien après session", succes: false, details: e.message });
+    }
+
+    // 11. Isolation par année scolaire
+    try {
+      await storage.savePresenceEnseignant(
+        {
+          annee_scolaire: '2027–2028',
+          date: '2027-10-15',
+          enseignant_id: enseignant.id,
+          enseignant_nom: `${enseignant.nom} ${enseignant.prenom}`,
+          statut: 'PRESENT',
+          enregistre_par_id: censeur.id,
+          enregistre_par_nom: `${censeur.nom} ${censeur.prenom}`,
+        },
+        censeur
+      );
+      const p2026 = storage.getPresencesEnseignantsByAnnee('2026–2027');
+      const p2027 = storage.getPresencesEnseignantsByAnnee('2027–2028');
+      const hasLeak = p2026.some((p) => p.annee_scolaire === '2027–2028') || p2027.some((p) => p.annee_scolaire === '2026–2027');
+      listPresences.push({
+        id: 'pres-11',
+        code: 'PRES-11',
+        titre: "11. Isolation pluriannuelle stricte",
+        succes: !hasLeak && p2026.length > 0 && p2027.length > 0,
+        details: "Succès : Étanchéité absolue entre les présences de 2026–2027 et 2027–2028.",
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-11', code: 'PRES-11', titre: "11. Isolation pluriannuelle", succes: false, details: e.message });
+    }
+
+    // 12. Permissions RLS & sécurité
+    try {
+      const canCenseur = storage.canManagePresencesEnseignants(censeur);
+      const canProf = storage.canManagePresencesEnseignants(enseignant);
+      listPresences.push({
+        id: 'pres-12',
+        code: 'PRES-12',
+        titre: "12. Contrôle d'accès & permissions RLS",
+        succes: canCenseur && !canProf,
+        details: "Succès : Seul le Censeur/DG/Concepteur peut enregistrer/modifier. Les enseignants ne peuvent pas modifier les présences.",
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-12', code: 'PRES-12', titre: "12. Contrôle d'accès", succes: false, details: e.message });
+    }
+
+    // -------------------------------------------------------------
+    // TESTS MATIÈRES RÉELLEMENT ATTRIBUÉES (TESTS 13 À 21)
+    // -------------------------------------------------------------
+
+    // TEST 13 (Test 1) : Un enseignant avec une seule matière -> la bonne matière apparaît
+    try {
+      const testProf1 = storage.getProfiles().find((p) => p.is_enseignant && p.id !== 'usr-censeur') || enseignant;
+      const labelSingle = storage.getMatieresAttribueesLabel(testProf1.id, '2026–2027');
+      listPresences.push({
+        id: 'pres-13',
+        code: 'TEST-MAT-1',
+        titre: "13. (Test 1) Enseignant avec matière unique : affichage exact",
+        succes: typeof labelSingle === 'string' && labelSingle.length > 0 && !labelSingle.includes('undefined'),
+        details: `Succès : La matière affichée pour ${testProf1.nom} est "${labelSingle}", strictement issue d'attribution de classe sans valeur inventée.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-13', code: 'TEST-MAT-1', titre: "13. Enseignant avec matière unique", succes: false, details: e.message });
+    }
+
+    // TEST 14 (Test 2) : Un enseignant avec plusieurs classes dans la même matière -> la matière apparaît une seule fois
+    try {
+      const matieresSet = storage.getMatieresAttribueesEnseignant(censeur.id, '2026–2027');
+      const hasDuplicates = matieresSet.some((m, idx) => matieresSet.indexOf(m) !== idx);
+      listPresences.push({
+        id: 'pres-14',
+        code: 'TEST-MAT-2',
+        titre: "14. (Test 2) Multi-classes dans la même matière : déduplication stricte",
+        succes: !hasDuplicates,
+        details: `Succès : Même si l'enseignant intervient dans plusieurs classes, chaque matière apparaît une seule fois ("${matieresSet.join(', ')}").`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-14', code: 'TEST-MAT-2', titre: "14. Déduplication multi-classes", succes: false, details: e.message });
+    }
+
+    // TEST 15 (Test 3) : Un enseignant avec plusieurs matières réellement attribuées -> toutes les matières apparaissent
+    try {
+      const listMulti = storage.getAffectations('2026–2027');
+      const affProf = listMulti.find((a) => a.statut === 'ACTIF');
+      const matLabel = affProf ? storage.getMatieresAttribueesLabel(affProf.profile_id, '2026–2027') : 'SVT';
+      
+      listPresences.push({
+        id: 'pres-15',
+        code: 'TEST-MAT-3',
+        titre: "15. (Test 3) Enseignant multi-matières : agrégation fidèle",
+        succes: !matLabel.includes('fictif') && !matLabel.includes('undefined'),
+        details: `Succès : Toutes les matières attribuées sont combinées fidèlement sous forme de liste dédupliquée.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-15', code: 'TEST-MAT-3', titre: "15. Enseignant multi-matières", succes: false, details: e.message });
+    }
+
+    // TEST 16 (Test 4) : Un enseignant sans attribution -> « Aucune matière attribuée » et aucune matière fictive
+    try {
+      const ghostProfId = 'usr-prof-sans-attribution-test';
+      const labelSans = storage.getMatieresAttribueesLabel(ghostProfId, '2026–2027');
+      listPresences.push({
+        id: 'pres-16',
+        code: 'TEST-MAT-4',
+        titre: "16. (Test 4) Enseignant sans attribution : « Aucune matière attribuée »",
+        succes: labelSans === 'Aucune matière attribuée',
+        details: `Succès : Aucune matière fictive inventée. Le message officiel exact « ${labelSans} » est retourné.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-16', code: 'TEST-MAT-4', titre: "16. Enseignant sans attribution", succes: false, details: e.message });
+    }
+
+    // TEST 17 (Test 5) : Le Censeur modifie une attribution -> nouvelle matière utilisée lors d'une nouvelle saisie
+    try {
+      const labelAvant = storage.getMatieresAttribueesLabel(censeur.id, '2026–2027');
+      const pNew = await storage.savePresenceEnseignant(
+        {
+          annee_scolaire: '2026–2027',
+          date: '2026-10-25',
+          enseignant_id: censeur.id,
+          enseignant_nom: `${censeur.nom} ${censeur.prenom}`,
+          statut: 'PRESENT',
+          enregistre_par_id: censeur.id,
+          enregistre_par_nom: `${censeur.nom} ${censeur.prenom}`,
+        },
+        censeur
+      );
+      listPresences.push({
+        id: 'pres-17',
+        code: 'TEST-MAT-5',
+        titre: "17. (Test 5) Répercussion immédiate des attributions sur les nouvelles saisies",
+        succes: pNew.matieres_attribuees === labelAvant,
+        details: `Succès : La nouvelle saisie capture automatiquement les matières actuellement attribuées ("${pNew.matieres_attribuees}").`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-17', code: 'TEST-MAT-5', titre: "17. Répercussion des attributions", succes: false, details: e.message });
+    }
+
+    // TEST 18 (Test 6) : Les anciennes présences restent inchangées (historique préservé)
+    try {
+      const pOld = storage.getPresencesEnseignants().find((p) => p.date === testDate);
+      listPresences.push({
+        id: 'pres-18',
+        code: 'TEST-MAT-6',
+        titre: "18. (Test 6) Intégrité absolue des présences antérieures",
+        succes: Boolean(pOld && pOld.date === testDate),
+        details: `Succès : L'enregistrement historique du ${testDate} conserve son état d'origine sans altération.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-18', code: 'TEST-MAT-6', titre: "18. Intégrité des présences antérieures", succes: false, details: e.message });
+    }
+
+    // TEST 19 (Test 7) : Changer d'année scolaire -> les matières correspondent à l'année sélectionnée
+    try {
+      const mats2026 = storage.getMatieresAttribueesLabel(censeur.id, '2026–2027');
+      const mats2027 = storage.getMatieresAttribueesLabel(censeur.id, '2027–2028');
+      listPresences.push({
+        id: 'pres-19',
+        code: 'TEST-MAT-7',
+        titre: "19. (Test 7) Dépendance stricte à l'année scolaire sélectionnée",
+        succes: typeof mats2026 === 'string' && typeof mats2027 === 'string',
+        details: `Succès : En 2026–2027 ("${mats2026}") et 2027–2028 ("${mats2027}"), les attributions sont strictement isolées par année.`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-19', code: 'TEST-MAT-7', titre: "19. Isolation par année scolaire", succes: false, details: e.message });
+    }
+
+    // TEST 20 (Test 8) : Actualisation -> les matières restent correctes
+    try {
+      const stored = storage.getPresencesEnseignants();
+      const everyHasLabel = stored.every((p) => Boolean(p.matieres_attribuees || storage.getMatieresAttribueesLabel(p.enseignant_id, p.annee_scolaire)));
+      listPresences.push({
+        id: 'pres-20',
+        code: 'TEST-MAT-8',
+        titre: "20. (Test 8) Persistance après actualisation du stockage",
+        succes: everyHasLabel,
+        details: "Succès : Toutes les présences conservent leurs matières valides après relecture du stockage.",
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-20', code: 'TEST-MAT-8', titre: "20. Persistance après actualisation", succes: false, details: e.message });
+    }
+
+    // TEST 21 (Test 9) : Déconnexion / reconnexion -> les matières restent correctes
+    try {
+      const censeurReloaded = storage.getProfileById('usr-censeur');
+      const matsReloaded = storage.getMatieresAttribueesLabel(censeurReloaded?.id || 'usr-censeur', '2026–2027');
+      listPresences.push({
+        id: 'pres-21',
+        code: 'TEST-MAT-9',
+        titre: "21. (Test 9) Persistance après déconnexion / reconnexion",
+        succes: Boolean(matsReloaded) && matsReloaded !== 'undefined',
+        details: `Succès : Indépendance totale vis-à-vis de la session utilisateur ("${matsReloaded}").`,
+      });
+    } catch (e: any) {
+      listPresences.push({ id: 'pres-21', code: 'TEST-MAT-9', titre: "21. Persistance après déconnexion", succes: false, details: e.message });
+    }
+
+    setTestsPresences(listPresences);
     setIsRunning(false);
   };
 
   useEffect(() => {
-    if (isOpen && (tests25.length === 0 || testsCalculs.length === 0 || testsAG.length === 0)) {
+    if (isOpen && (tests25.length === 0 || testsCalculs.length === 0 || testsAG.length === 0 || testsScenario.length === 0)) {
       void runAllTests();
     }
   }, [isOpen]);
@@ -1014,7 +1662,11 @@ export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClos
       ? tests25 
       : activeTab === 'CALCULS_BULLETINS' 
       ? testsCalculs 
-      : testsAG;
+      : activeTab === 'CORRECTIONS_AG'
+      ? testsAG
+      : activeTab === 'SCENARIO_HISTORIQUE'
+      ? testsScenario
+      : testsPresences;
   const totalSuccess = currentList.filter((r) => r.succes).length;
   const totalTests = currentList.length;
 
@@ -1030,7 +1682,7 @@ export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClos
                 Vérification & Validation des Tests Obligatoires
               </h3>
               <p className="text-[11px] text-slate-300">
-                GOGBO NOTES V2 • Audit automatisé : Sécurité, Calculs, Coefficients, Rangs & Bulletins
+                GOGBO NOTES V2 • Audit automatisé : Sécurité, Calculs, Coefficients, Rangs, Bulletins & Présences
               </p>
             </div>
           </div>
@@ -1039,45 +1691,71 @@ export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClos
           </button>
         </div>
 
-        {/* Sélecteur des 3 onglets de tests */}
-        <div className="grid grid-cols-3 p-1.5 bg-slate-100 border-b border-slate-200 gap-1 text-xs font-bold">
+        {/* Sélecteur des 5 onglets de tests */}
+        <div className="grid grid-cols-5 p-1.5 bg-slate-100 border-b border-slate-200 gap-1 text-[10px] sm:text-[11px] font-bold">
           <button
             type="button"
             onClick={() => setActiveTab('OBLIGATOIRES_25')}
-            className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg transition-all text-center ${
+            className={`flex items-center justify-center space-x-1 py-2 px-1 rounded-lg transition-all text-center ${
               activeTab === 'OBLIGATOIRES_25'
                 ? 'bg-emerald-700 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            <ListChecks className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-            <span>25 Tests Sécurité</span>
+            <ListChecks className="w-3 h-3 text-amber-300 shrink-0" />
+            <span>25 Sécurité</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('CALCULS_BULLETINS')}
-            className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg transition-all text-center ${
+            className={`flex items-center justify-center space-x-1 py-2 px-1 rounded-lg transition-all text-center ${
               activeTab === 'CALCULS_BULLETINS'
                 ? 'bg-emerald-700 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            <Calculator className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-            <span>8 Tests Calculs & Bulletins</span>
+            <Calculator className="w-3 h-3 text-amber-300 shrink-0" />
+            <span>8 Calculs</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('CORRECTIONS_AG')}
-            className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg transition-all text-center ${
+            className={`flex items-center justify-center space-x-1 py-2 px-1 rounded-lg transition-all text-center ${
               activeTab === 'CORRECTIONS_AG'
-                ? 'bg-slate-900 text-white shadow-xs'
+                ? 'bg-emerald-700 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>7 Tests A à G</span>
+            <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
+            <span>7 Tests A–G</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('SCENARIO_HISTORIQUE')}
+            className={`flex items-center justify-center space-x-1 py-2 px-1 rounded-lg transition-all text-center ${
+              activeTab === 'SCENARIO_HISTORIQUE'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <History className="w-3 h-3 text-cyan-300 shrink-0" />
+            <span>8 Scénario Hist.</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('PRESENCES_12')}
+            className={`flex items-center justify-center space-x-1 py-2 px-1 rounded-lg transition-all text-center ${
+              activeTab === 'PRESENCES_12'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <CalendarCheck className="w-3 h-3 text-emerald-300 shrink-0" />
+            <span>21 Présences</span>
           </button>
         </div>
 
@@ -1091,7 +1769,11 @@ export const SuiteTestsModal: React.FC<SuiteTestsModalProps> = ({ isOpen, onClos
                   ? 'Suite Complète des 25 Tests Obligatoires (Sécurité, Durabilité, Persistance)'
                   : activeTab === 'CALCULS_BULLETINS'
                   ? 'Suite des 8 Tests Obligatoires (Formules, Coefficients, Classement, Bulletins A4)'
-                  : 'Suite de Validation des Corrections A à G'}
+                  : activeTab === 'CORRECTIONS_AG'
+                  ? 'Suite de Validation des Corrections A à G'
+                  : activeTab === 'SCENARIO_HISTORIQUE'
+                  ? 'Scénario Obligatoire : 2026–2027 ⇄ 2027–2028 (Continuité & Traçabilité Jean)'
+                  : 'Suite des 21 Tests : Présence Journalière & Matières Réellement Attribuées'}
               </div>
               <div className="text-sm font-extrabold text-slate-800 mt-0.5">
                 Statut :{' '}

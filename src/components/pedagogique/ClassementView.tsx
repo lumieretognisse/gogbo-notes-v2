@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useAnnee } from '../../context/AnneeContext';
 import { storage } from '../../lib/storage';
 import { calculerClassementClasse, getAppreciationColor } from '../../lib/appreciation';
 import { Classe, Periode } from '../../types';
@@ -13,7 +14,8 @@ import {
   ArrowUpDown, 
   TrendingUp,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Calendar
 } from 'lucide-react';
 
 interface ClassementViewProps {
@@ -22,30 +24,32 @@ interface ClassementViewProps {
 
 export const ClassementView: React.FC<ClassementViewProps> = ({ onOpenBulletin }) => {
   const { currentUser, isCenseur, isDirecteur, affectations } = useAuth();
+  const { selectedAnnee, annees } = useAnnee();
 
   const classes = storage.getClasses();
-  const periodes = storage.getPeriodes();
-  const activePeriode = storage.getActivePeriode();
+  const periodes = storage.getPeriodes().filter((p) => p.annee_scolaire === selectedAnnee.libelle);
+  const activePeriode = periodes.find((p) => p.is_active) || periodes[0] || storage.getActivePeriode();
 
   // Filtrage des classes accessibles pour les enseignants
   const allowedClasses = React.useMemo(() => {
     if (isCenseur || isDirecteur) return classes;
-    const teacherClasseIds = new Set(affectations.map((a) => a.classe_id));
+    const teacherAffs = storage.getAffectationsByProfile(currentUser?.id || '', selectedAnnee.libelle);
+    const teacherClasseIds = new Set(teacherAffs.map((a) => a.classe_id));
     return classes.filter((c) => teacherClasseIds.has(c.id));
-  }, [classes, isCenseur, isDirecteur, affectations]);
+  }, [classes, isCenseur, isDirecteur, currentUser?.id, selectedAnnee.libelle]);
 
   const [selectedClasseId, setSelectedClasseId] = useState<string>(
     allowedClasses.length > 0 ? allowedClasses[0].id : (classes[0]?.id || '')
   );
-  const [selectedPeriodeId, setSelectedPeriodeId] = useState<string>(activePeriode.id);
+  const [selectedPeriodeId, setSelectedPeriodeId] = useState<string>(activePeriode?.id || '');
 
   const selectedClasse: Classe | undefined = classes.find((c) => c.id === selectedClasseId);
-  const selectedPeriode: Periode | undefined = periodes.find((p) => p.id === selectedPeriodeId);
+  const selectedPeriode: Periode | undefined = periodes.find((p) => p.id === selectedPeriodeId) || periodes[0];
 
-  const eleves = selectedClasse ? storage.getElevesByClasse(selectedClasse.id) : [];
+  const eleves = selectedClasse ? storage.getElevesByClasse(selectedClasse.id, selectedAnnee.libelle) : [];
   const matieres = storage.getMatieres();
   const allNotes = storage.getNotes();
-  const allAffectations = storage.getAffectations();
+  const allAffectations = storage.getAffectations(selectedAnnee.libelle);
 
   // Calcul du classement en temps réel
   const { classement, bulletinsMap } = React.useMemo(() => {

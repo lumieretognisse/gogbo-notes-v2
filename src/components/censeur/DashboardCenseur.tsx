@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { storage } from '../../lib/storage';
 import { 
   Users, 
@@ -11,7 +12,9 @@ import {
   AlertTriangle,
   ArrowRight,
   ShieldCheck,
-  FileText
+  FileText,
+  History,
+  CalendarCheck
 } from 'lucide-react';
 import { TabKey } from '../Navigation';
 
@@ -20,6 +23,7 @@ interface DashboardCenseurProps {
 }
 
 export const DashboardCenseur: React.FC<DashboardCenseurProps> = ({ onNavigate }) => {
+  const { currentUser } = useAuth();
   const eleves = storage.getEleves();
   const activeEleves = eleves.filter((e) => e.statut === 'ACTIF');
   const profiles = storage.getProfiles();
@@ -49,7 +53,7 @@ export const DashboardCenseur: React.FC<DashboardCenseurProps> = ({ onNavigate }
           <div>
             <div className="flex items-center space-x-2">
               <span className="bg-amber-400 text-slate-950 text-[11px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
-                Direction Pédagogique (Censeur)
+                {currentUser?.role === 'CONCEPTEUR' ? 'CONCEPTEUR / SUPER ADMINISTRATEUR' : 'Direction Pédagogique (Censeur)'}
               </span>
               <span className="text-emerald-300 text-xs">• Année {params.annee_academique}</span>
             </div>
@@ -61,10 +65,33 @@ export const DashboardCenseur: React.FC<DashboardCenseurProps> = ({ onNavigate }
             </p>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              id="btn-censeur-goto-presence"
+              onClick={() => onNavigate('presence_enseignants')}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
+            >
+              <CalendarCheck className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Présence Enseignants</span>
+            </button>
+            <button
+              id="btn-censeur-goto-affectations"
+              onClick={() => onNavigate('affectations')}
+              className="bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
+            >
+              <Network className="w-3.5 h-3.5" />
+              <span>Attribution de classe</span>
+            </button>
+            <button
+              onClick={() => onNavigate('historique_annees')}
+              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Historique des années</span>
+            </button>
             <button
               onClick={() => onNavigate('pedagogique')}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition-colors flex items-center space-x-1.5 shadow-sm"
+              className="bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
             >
               <span>Accéder à mes notes (SVT)</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -148,7 +175,17 @@ export const DashboardCenseur: React.FC<DashboardCenseurProps> = ({ onNavigate }
           <span>Gestion rapide de l'établissement</span>
         </h3>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+          <button
+            id="card-btn-presence-enseignants"
+            onClick={() => onNavigate('presence_enseignants')}
+            className="p-3 text-left rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors group cursor-pointer shadow-2xs"
+          >
+            <CalendarCheck className="w-5 h-5 text-emerald-700 mb-1.5 group-hover:scale-105 transition-transform" />
+            <div className="text-xs font-black text-emerald-950 uppercase tracking-wide">Présence Enseignants</div>
+            <div className="text-[10px] text-emerald-700 font-medium">Pointage journalier & retards</div>
+          </button>
+
           <button
             onClick={() => onNavigate('eleves')}
             className="p-3 text-left rounded-lg bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 transition-colors group"
@@ -168,12 +205,13 @@ export const DashboardCenseur: React.FC<DashboardCenseurProps> = ({ onNavigate }
           </button>
 
           <button
+            id="card-btn-attribution-classe"
             onClick={() => onNavigate('affectations')}
-            className="p-3 text-left rounded-lg bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 transition-colors group"
+            className="p-3 text-left rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors group cursor-pointer"
           >
-            <Network className="w-5 h-5 text-purple-700 mb-1.5 group-hover:scale-105 transition-transform" />
-            <div className="text-xs font-bold text-slate-900">Attributions de classe</div>
-            <div className="text-[10px] text-slate-500">Attribution classe + matière</div>
+            <Network className="w-5 h-5 text-emerald-700 mb-1.5 group-hover:scale-105 transition-transform" />
+            <div className="text-xs font-black text-emerald-950 uppercase tracking-wide">Attribution de classe</div>
+            <div className="text-[10px] text-emerald-700 font-medium">Multi-classes par enseignant</div>
           </button>
 
           <button

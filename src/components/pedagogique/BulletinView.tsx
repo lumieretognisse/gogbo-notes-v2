@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useAnnee } from '../../context/AnneeContext';
 import { storage } from '../../lib/storage';
 import { 
   calculerClassementClasse, 
@@ -35,19 +36,21 @@ export const BulletinView: React.FC<BulletinViewProps> = ({
   initialClasseId,
   initialPeriodeId,
 }) => {
-  const { isCenseur, isDirecteur, affectations } = useAuth();
+  const { isCenseur, isDirecteur, affectations, currentUser } = useAuth();
+  const { selectedAnnee, annees } = useAnnee();
 
   const classes = storage.getClasses();
-  const periodes = storage.getPeriodes();
-  const activePeriode = storage.getActivePeriode();
+  const periodes = storage.getPeriodes().filter((p) => p.annee_scolaire === selectedAnnee.libelle);
+  const activePeriode = periodes.find((p) => p.is_active) || periodes[0] || storage.getActivePeriode();
   const parametres: ParametresEcole = storage.getParametres();
 
   // Filtrage des classes autorisées selon les attributions
   const allowedClasses = React.useMemo(() => {
     if (isCenseur || isDirecteur) return classes;
-    const teacherClasseIds = new Set(affectations.map((a) => a.classe_id));
+    const teacherAffs = storage.getAffectationsByProfile(currentUser?.id || '', selectedAnnee.libelle);
+    const teacherClasseIds = new Set(teacherAffs.map((a) => a.classe_id));
     return classes.filter((c) => teacherClasseIds.has(c.id));
-  }, [classes, isCenseur, isDirecteur, affectations]);
+  }, [classes, isCenseur, isDirecteur, currentUser?.id, selectedAnnee.libelle]);
 
   const [selectedClasseId, setSelectedClasseId] = useState<string>(
     initialClasseId && allowedClasses.some((c) => c.id === initialClasseId)
@@ -56,7 +59,7 @@ export const BulletinView: React.FC<BulletinViewProps> = ({
   );
 
   const [selectedPeriodeId, setSelectedPeriodeId] = useState<string>(
-    initialPeriodeId || activePeriode.id
+    initialPeriodeId || activePeriode?.id || ''
   );
 
   // Type de bulletin : Périodique (Semestre / Trimestre) ou Annuel (Synthèse S1 & S2)
@@ -65,7 +68,7 @@ export const BulletinView: React.FC<BulletinViewProps> = ({
   const selectedClasse = classes.find((c) => c.id === selectedClasseId);
   const selectedPeriode = periodes.find((p) => p.id === selectedPeriodeId) || periodes[0];
 
-  const eleves: Eleve[] = selectedClasse ? storage.getElevesByClasse(selectedClasse.id) : [];
+  const eleves: Eleve[] = selectedClasse ? storage.getElevesByClasse(selectedClasse.id, selectedAnnee.libelle) : [];
 
   const [selectedEleveId, setSelectedEleveId] = useState<string>(
     initialEleveId && eleves.some((e) => e.id === initialEleveId)
@@ -88,7 +91,7 @@ export const BulletinView: React.FC<BulletinViewProps> = ({
 
   const matieres = storage.getMatieres();
   const allNotes = storage.getNotes();
-  const allAffectations = storage.getAffectations();
+  const allAffectations = storage.getAffectations(selectedAnnee.libelle);
 
   // Recherche des périodes S1 et S2
   const periodeS1 = periodes.find((p) => p.code === 'S1') || periodes.find((p) => p.code === 'T1') || periodes[0];
@@ -97,15 +100,23 @@ export const BulletinView: React.FC<BulletinViewProps> = ({
   // Calcul du classement périodique
   const { classement: classementPeriodique, bulletinsMap: bulletinsMapPeriodique } = React.useMemo(() => {
     if (!selectedClasse || !selectedPeriode) return { classement: [], bulletinsMap: {} };
+    const presencesMap: Record<string, { totalAbsences: number; estAbandon: boolean }> = {};
+    for (const e of eleves) {
+      presencesMap[e.id] = {
+        totalAbsences: storage.getEleveAbsencesCount(e.id, selectedAnnee.libelle, selectedPeriode.id),
+        estAbandon: storage.isEleveAbandon(e.id, selectedAnnee.libelle),
+      };
+    }
     return calculerClassementClasse(
       selectedClasse,
       eleves,
       selectedPeriode,
       matieres,
       allNotes,
-      allAffectations
+      allAffectations,
+      presencesMap
     );
-  }, [selectedClasse, eleves, selectedPeriode, matieres, allNotes, allAffectations]);
+  }, [selectedClasse, eleves, selectedPeriode, matieres, allNotes, allAffectations, selectedAnnee.libelle]);
 
   // Calcul du classement annuel
   const { classement: classementAnnuel, bulletinsAnnuelsMap } = React.useMemo(() => {
@@ -370,7 +381,7 @@ export const BulletinView: React.FC<BulletinViewProps> = ({
 
                     <div className="text-[9px] sm:text-[10px] leading-tight text-slate-700 font-serif text-right sm:text-center">
                       <p className="font-bold">ARRONDISSEMENT DE GANGBAN</p>
-                      <p>Année Scolaire : <strong>{parametres.annee_academique || '2026–2027'}</strong></p>
+                      <p>Année Scolaire : <strong>{selectedAnnee.libelle || parametres.annee_academique || '2026–2027'}</strong></p>
                       <p className="font-bold text-slate-900">{selectedPeriode.nom.toUpperCase()}</p>
                     </div>
                   </div>
@@ -408,6 +419,17 @@ export const BulletinView: React.FC<BulletinViewProps> = ({
                       <span className="text-slate-500 font-normal">Option LV2 : </span>
                       <strong>{eleve.langue_vivante_2 !== 'AUCUNE' ? eleve.langue_vivante_2 : 'Tronc Commun'}</strong>
                     </div>
+                    <div>
+                      <span className="text-slate-500 font-normal">Total absences : </span>
+                      <strong className="text-slate-900 font-bold">{bulletin.total_absences ?? 0} heure(s) / jour(s)</strong>
+                    </div>
+                    {bulletin.est_abandon && (
+                      <div className="sm:col-span-2 flex items-center">
+                        <span className="bg-red-700 text-white font-black px-2.5 py-1 rounded text-[10px] uppercase tracking-wider shadow-xs">
+                          ⚠ STATUT : APPRENANT AYANT ABANDONNÉ
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useAnnee } from '../context/AnneeContext';
 import { storage } from '../lib/storage';
 import { 
   GraduationCap, 
@@ -9,23 +10,31 @@ import {
   X, 
   CheckCircle2, 
   Building2, 
-  FileText 
+  FileText,
+  Calendar,
+  Archive,
+  ArrowRight
 } from 'lucide-react';
 
 interface HeaderProps {
   onOpenTestModal: () => void;
   onOpenSqlModal: () => void;
+  onOpenMonCompte?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenTestModal, onOpenSqlModal }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenTestModal, onOpenSqlModal, onOpenMonCompte }) => {
   const { currentUser, logout, switchUser } = useAuth();
+  const { annees, activeAnnee, selectedAnnee, setSelectedAnnee, isArchive } = useAnnee();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const profiles = storage.getProfiles();
-  const activePeriode = storage.getActivePeriode();
+  const periodesList = storage.getPeriodesByAnnee(selectedAnnee?.libelle || '2026–2027');
+  const activePeriode = periodesList.find((p) => p.is_active) || periodesList[0] || storage.getActivePeriode();
   const params = storage.getParametres();
 
   const getRoleLabel = (role: string) => {
     switch (role) {
+      case 'CONCEPTEUR':
+        return 'CONCEPTEUR / SUPER ADMINISTRATEUR';
       case 'DIRECTEUR_GENERAL':
         return 'Directeur Général';
       case 'CENSEUR':
@@ -56,9 +65,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenTestModal, onOpenSqlModal 
           <span>•</span>
           <span>Arrondissement : <strong>{params.arrondissement}</strong></span>
           <span>•</span>
-          <span className="bg-emerald-950 px-2 py-0.5 rounded text-amber-300 font-medium">
-            Année {params.annee_academique}
-          </span>
+          <div className="flex items-center space-x-1.5 bg-emerald-950 px-2 py-0.5 rounded text-amber-300 font-medium">
+            <Calendar className="w-3 h-3 text-amber-400" />
+            <span>Année {selectedAnnee.libelle}</span>
+            {selectedAnnee.is_active ? (
+              <span className="bg-emerald-600 text-white text-[9px] px-1 rounded uppercase font-bold">Active</span>
+            ) : selectedAnnee.statut === 'CLOTUREE' ? (
+              <span className="bg-red-800 text-red-100 text-[9px] px-1 rounded uppercase font-bold">Clôturée</span>
+            ) : (
+              <span className="bg-blue-800 text-blue-100 text-[9px] px-1 rounded uppercase font-bold">À venir</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -84,12 +101,34 @@ export const Header: React.FC<HeaderProps> = ({ onOpenTestModal, onOpenSqlModal 
           </div>
         </div>
 
-        {/* Actions centrales & Période */}
+        {/* Actions centrales : Sélecteur d'Année Pluriannuelle & Période */}
         <div className="hidden lg:flex items-center space-x-3">
+          {/* Sélecteur d'Année Scolaire */}
+          <div className="bg-slate-800/90 px-2.5 py-1.5 rounded-lg border border-slate-700 text-xs flex items-center space-x-1.5">
+            <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="text-slate-400">Année :</span>
+            <select
+              id="select-header-annee"
+              aria-label="Sélectionner l'année scolaire"
+              value={selectedAnnee.id}
+              onChange={(e) => {
+                const target = annees.find((a) => a.id === e.target.value);
+                if (target) setSelectedAnnee(target);
+              }}
+              className="bg-slate-900 text-amber-300 font-bold text-xs rounded border border-slate-700 py-0.5 px-2 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+            >
+              {annees.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.libelle} {a.is_active ? '★ (En cours)' : a.statut === 'CLOTUREE' ? '🔒 (Archivée)' : '⏳ (À venir)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700 text-xs flex items-center space-x-2">
-            <span className="text-slate-400">Période active :</span>
+            <span className="text-slate-400">Période :</span>
             <span className="font-semibold text-emerald-400">{activePeriode.nom}</span>
-            {activePeriode.is_locked ? (
+            {activePeriode.is_locked || isArchive ? (
               <span className="bg-red-900/60 text-red-200 text-[10px] px-1.5 py-0.5 rounded">Verrouillé</span>
             ) : (
               <span className="bg-emerald-900/60 text-emerald-200 text-[10px] px-1.5 py-0.5 rounded">Saisie Ouverte</span>
@@ -121,20 +160,28 @@ export const Header: React.FC<HeaderProps> = ({ onOpenTestModal, onOpenSqlModal 
         <div className="flex items-center space-x-2 sm:space-x-3">
           {currentUser && (
             <div className="flex items-center space-x-2 bg-slate-800/90 border border-slate-700 px-2 sm:px-3 py-1 rounded-lg">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-xs">
-                {currentUser.prenom.charAt(0)}{currentUser.nom.charAt(0)}
-              </div>
-              <div className="text-left hidden sm:block">
-                <div className="text-xs font-semibold text-white leading-tight">
-                  {currentUser.prenom} {currentUser.nom}
+              <button
+                id="header-btn-mon-compte"
+                type="button"
+                onClick={onOpenMonCompte}
+                className="flex items-center space-x-2 text-left cursor-pointer hover:opacity-90 transition-opacity"
+                title="Mon Compte personnel (Consulter et modifier mes informations)"
+              >
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-xs">
+                  {currentUser.prenom.charAt(0)}{currentUser.nom.charAt(0)}
                 </div>
-                <div className="text-[10px] text-amber-300 font-medium">
-                  {getRoleLabel(currentUser.role)}
-                  {currentUser.is_enseignant && currentUser.role !== 'ENSEIGNANT' && (
-                    <span className="text-emerald-300 ml-1">(+ Enseignant)</span>
-                  )}
+                <div className="text-left hidden sm:block">
+                  <div className="text-xs font-semibold text-white leading-tight">
+                    {currentUser.prenom} {currentUser.nom}
+                  </div>
+                  <div className="text-[10px] text-amber-300 font-medium">
+                    {getRoleLabel(currentUser.role)}
+                    {currentUser.is_enseignant && currentUser.role !== 'ENSEIGNANT' && (
+                      <span className="text-emerald-300 ml-1">(+ Enseignant)</span>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </button>
 
               {/* Changement de compte / test direct */}
               <div className="pl-1 border-l border-slate-700 ml-1">
@@ -206,6 +253,33 @@ export const Header: React.FC<HeaderProps> = ({ onOpenTestModal, onOpenSqlModal 
               <span>Voir le schéma SQL Supabase / PostgreSQL</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Bandeau officiel de Consultation Historique (Exigences 5 & 6) */}
+      {(isArchive || selectedAnnee.id !== activeAnnee.id) && (
+        <div id="banner-archive-mode" className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 text-amber-100 border-t border-b border-amber-600/70 px-4 py-2 text-xs shadow-inner flex flex-wrap justify-between items-center gap-2">
+          <div className="flex items-center space-x-2.5">
+            <span className="bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded text-[10px] uppercase tracking-wider shadow-2xs flex items-center space-x-1">
+              <Archive className="w-3.5 h-3.5" />
+              <span>CONSULTATION HISTORIQUE</span>
+            </span>
+            <span className="font-extrabold text-amber-200 text-xs sm:text-sm">
+              CONSULTATION HISTORIQUE — ANNÉE SCOLAIRE {selectedAnnee.libelle}
+            </span>
+            <span className="text-amber-300/80 text-[11px] hidden md:inline">
+              • Mode lecture seule (Archives officielles protégées)
+            </span>
+          </div>
+          <button
+            id="btn-retour-annee-active-header"
+            onClick={() => setSelectedAnnee(activeAnnee)}
+            className="flex items-center space-x-1.5 text-xs bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1 rounded-md font-black transition-all shadow-xs cursor-pointer hover:shadow-sm"
+            title="Revenir immédiatement à l'année scolaire active en cours"
+          >
+            <span>RETOUR À L'ANNÉE ACTIVE ({activeAnnee.libelle})</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </header>

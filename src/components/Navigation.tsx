@@ -16,11 +16,13 @@ import {
   LogOut,
   User,
   Trophy,
-  FileText
+  FileText,
+  CalendarCheck
 } from 'lucide-react';
 
 export type TabKey = 
   | 'censeur_dashboard'
+  | 'presence_enseignants'
   | 'pedagogique'
   | 'classement'
   | 'bulletins'
@@ -34,7 +36,8 @@ export type TabKey =
   | 'parametres'
   | 'directeur_stats'
   | 'surveillant'
-  | 'comptable';
+  | 'comptable'
+  | 'historique_annees';
 
 interface NavigationProps {
   currentTab: TabKey;
@@ -43,7 +46,7 @@ interface NavigationProps {
 }
 
 export const Navigation: React.FC<NavigationProps> = ({ currentTab, onSelectTab, onOpenMonCompte }) => {
-  const { currentUser, isCenseur, isDirecteur, isSurveillant, isComptable, hasPedagogicalAssignments, logout } = useAuth();
+  const { currentUser, isCenseur, isDirecteur, isConcepteur, isSurveillant, isComptable, hasPedagogicalAssignments, logout } = useAuth();
 
   if (!currentUser) return null;
 
@@ -70,17 +73,19 @@ export const Navigation: React.FC<NavigationProps> = ({ currentTab, onSelectTab,
       tabs.push(
         { key: 'classement', label: 'Classement', icon: <Trophy className="w-4 h-4 text-amber-400" /> },
         { key: 'bulletins', label: 'Bulletins Scolaires', icon: <FileText className="w-4 h-4 text-emerald-400" /> },
+        { key: 'presence_enseignants', label: 'Présence Enseignants', icon: <CalendarCheck className="w-4 h-4 text-emerald-400" /> },
         { key: 'eleves', label: 'Consultation Élèves', icon: <Users className="w-4 h-4" /> },
         { key: 'enseignants', label: 'Enseignants', icon: <GraduationCap className="w-4 h-4" /> },
-        { key: 'affectations', label: 'Attributions de classe', icon: <Network className="w-4 h-4" /> },
+        { key: 'affectations', label: 'Attribution de classe', icon: <Network className="w-4 h-4 text-emerald-400" /> },
         { key: 'classes', label: 'Classes (28)', icon: <School className="w-4 h-4" /> },
+        { key: 'historique_annees', label: 'Historique des années', icon: <History className="w-4 h-4 text-amber-400" />, badge: 'Archives' },
         { key: 'audit', label: 'Journal d’Audit', icon: <History className="w-4 h-4" /> }
       );
       return tabs;
     }
 
-    // 2. ESPACE CENSEUR (ADMINISTRATEUR OPÉRATIONNEL PRINCIPAL)
-    if (isCenseur) {
+    // 2. ESPACE CENSEUR & CONCEPTEUR / SUPER ADMINISTRATEUR
+    if (isCenseur || isConcepteur) {
       tabs.push(
         {
           key: 'censeur_dashboard',
@@ -98,14 +103,16 @@ export const Navigation: React.FC<NavigationProps> = ({ currentTab, onSelectTab,
         });
       }
       tabs.push(
+        { key: 'presence_enseignants', label: 'Présence Journalière Enseignants', icon: <CalendarCheck className="w-4 h-4 text-emerald-400" />, badge: 'Quotidien' },
         { key: 'classement', label: 'Classement', icon: <Trophy className="w-4 h-4 text-amber-500" /> },
         { key: 'bulletins', label: 'Bulletins Scolaires', icon: <FileText className="w-4 h-4 text-emerald-600" /> },
         { key: 'eleves', label: 'Élèves', icon: <Users className="w-4 h-4" /> },
         { key: 'enseignants', label: 'Enseignants', icon: <GraduationCap className="w-4 h-4" /> },
-        { key: 'affectations', label: 'Attributions de classe', icon: <Network className="w-4 h-4" /> },
+        { key: 'affectations', label: 'Attribution de classe', icon: <Network className="w-4 h-4 text-emerald-500" /> },
         { key: 'classes', label: 'Classes (28)', icon: <School className="w-4 h-4" /> },
         { key: 'matieres', label: 'Matières & Coefs', icon: <Layers className="w-4 h-4" /> },
         { key: 'periodes', label: 'Périodes', icon: <CalendarDays className="w-4 h-4" /> },
+        { key: 'historique_annees', label: 'Historique des années', icon: <History className="w-4 h-4 text-amber-500" />, badge: 'Archives' },
         { key: 'audit', label: 'Journal d’Audit', icon: <History className="w-4 h-4" /> },
         { key: 'parametres', label: 'Paramètres', icon: <Settings className="w-4 h-4" /> }
       );

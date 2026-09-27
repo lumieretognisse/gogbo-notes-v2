@@ -41,7 +41,10 @@ export const GestionEnseignants: React.FC = () => {
   const [prenom, setPrenom] = useState('');
   const [email, setEmail] = useState('');
   const [telephone, setTelephone] = useState('');
+  const [adresse, setAdresse] = useState('');
+  const [matiere, setMatiere] = useState('');
   const [role, setRole] = useState<RoleAdmin>('ENSEIGNANT');
+  const [statut, setStatut] = useState<'ACTIF' | 'INACTIF'>('ACTIF');
   const [isEnseignant, setIsEnseignant] = useState(true);
   const [password, setPassword] = useState('');
 
@@ -60,7 +63,10 @@ export const GestionEnseignants: React.FC = () => {
     setPrenom('');
     setEmail('');
     setTelephone('');
+    setAdresse('');
+    setMatiere(matieres[0]?.nom || 'Mathématiques');
     setRole('ENSEIGNANT');
+    setStatut('ACTIF');
     setIsEnseignant(true);
     setPassword('Gogbo2026!');
     setErrorMessage(null);
@@ -73,7 +79,10 @@ export const GestionEnseignants: React.FC = () => {
     setPrenom(p.prenom);
     setEmail(p.email);
     setTelephone(p.telephone || '');
+    setAdresse(p.adresse || '');
+    setMatiere(p.matiere || matieres[0]?.nom || '');
     setRole(p.role);
+    setStatut(p.statut);
     setIsEnseignant(p.is_enseignant);
     setPassword('');
     setErrorMessage(null);
@@ -102,9 +111,13 @@ export const GestionEnseignants: React.FC = () => {
             nom: nom.trim().toUpperCase(),
             prenom: prenom.trim(),
             email: email.trim().toLowerCase(),
-            telephone: telephone.trim(),
+            telephone: telephone.trim() || undefined,
+            adresse: adresse.trim() || undefined,
+            matiere: matiere.trim() || undefined,
             role,
             is_enseignant: isEnseignant,
+            statut,
+            initial_password: password.trim() || undefined,
           },
           currentUser
         );
@@ -115,10 +128,13 @@ export const GestionEnseignants: React.FC = () => {
             nom: nom.trim().toUpperCase(),
             prenom: prenom.trim(),
             email: email.trim().toLowerCase(),
-            telephone: telephone.trim(),
+            telephone: telephone.trim() || undefined,
+            adresse: adresse.trim() || undefined,
+            matiere: matiere.trim() || undefined,
             role,
             is_enseignant: isEnseignant,
-            statut: 'ACTIF',
+            statut,
+            initial_password: password.trim() || 'Gogbo2026!',
           },
           currentUser
         );
@@ -276,8 +292,10 @@ export const GestionEnseignants: React.FC = () => {
                       <td className="px-3 sm:px-4 py-3 whitespace-nowrap">
                         <span
                           className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                            p.role === 'DIRECTEUR_GENERAL'
+                            p.role === 'CONCEPTEUR'
                               ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                              : p.role === 'DIRECTEUR_GENERAL'
+                              ? 'bg-indigo-100 text-indigo-900 border border-indigo-200'
                               : p.role === 'CENSEUR'
                               ? 'bg-amber-100 text-amber-900 border border-amber-200'
                               : p.role === 'SURVEILLANT_GENERAL'
@@ -287,7 +305,7 @@ export const GestionEnseignants: React.FC = () => {
                               : 'bg-slate-100 text-slate-800 border border-slate-200'
                           }`}
                         >
-                          {p.role}
+                          {p.role === 'CONCEPTEUR' ? 'CONCEPTEUR / SUPER ADMINISTRATEUR' : p.role}
                         </span>
                       </td>
 
@@ -466,6 +484,7 @@ export const GestionEnseignants: React.FC = () => {
                   <option value="ENSEIGNANT">Enseignant</option>
                   <option value="CENSEUR">Censeur</option>
                   <option value="DIRECTEUR_GENERAL">Directeur Général</option>
+                  <option value="CONCEPTEUR">CONCEPTEUR / SUPER ADMINISTRATEUR</option>
                   <option value="SURVEILLANT_GENERAL">Surveillant Général</option>
                   <option value="COMPTABLE">Comptable</option>
                 </select>

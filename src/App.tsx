@@ -6,11 +6,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { AnneeProvider } from './context/AnneeContext';
 import { Header } from './components/Header';
 import { Navigation, TabKey } from './components/Navigation';
 import { LoginView } from './components/auth/LoginView';
 import { EspacePedagogique } from './components/pedagogique/EspacePedagogique';
 import { DashboardCenseur } from './components/censeur/DashboardCenseur';
+import { PresenceEnseignants } from './components/censeur/PresenceEnseignants';
 import { GestionEleves } from './components/censeur/GestionEleves';
 import { GestionEnseignants } from './components/censeur/GestionEnseignants';
 import { GestionAffectations } from './components/censeur/GestionAffectations';
@@ -19,6 +21,7 @@ import { GestionMatieres } from './components/censeur/GestionMatieres';
 import { GestionPeriodes } from './components/censeur/GestionPeriodes';
 import { JournalAudit } from './components/censeur/JournalAudit';
 import { ParametresEtablissement } from './components/censeur/ParametresEtablissement';
+import { HistoriqueAnneesScolaires } from './components/censeur/HistoriqueAnneesScolaires';
 import { DirecteurDashboard } from './components/directeur/DirecteurDashboard';
 import { SurveillantDashboard } from './components/surveillant/SurveillantDashboard';
 import { ComptableDashboard } from './components/comptable/ComptableDashboard';
@@ -30,7 +33,7 @@ import { SqlSchemaModal } from './components/modals/SqlSchemaModal';
 import { MonCompteModal } from './components/modals/MonCompteModal';
 
 const MainAppContent: React.FC = () => {
-  const { currentUser, isCenseur, isDirecteur, isSurveillant, isComptable, isLoading } = useAuth();
+  const { currentUser, isCenseur, isDirecteur, isConcepteur, isSurveillant, isComptable, isLoading } = useAuth();
   const [currentTab, setCurrentTab] = useState<TabKey>('censeur_dashboard');
   const [bulletinTarget, setBulletinTarget] = useState<{ eleveId?: string; classeId?: string; periodeId?: string } | null>(null);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
@@ -42,7 +45,7 @@ const MainAppContent: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    if (isCenseur) {
+    if (isCenseur || isConcepteur) {
       setCurrentTab('censeur_dashboard');
     } else if (isDirecteur) {
       setCurrentTab('directeur_stats');
@@ -77,6 +80,8 @@ const MainAppContent: React.FC = () => {
     switch (currentTab) {
       case 'censeur_dashboard':
         return <DashboardCenseur onNavigate={setCurrentTab} />;
+      case 'presence_enseignants':
+        return <PresenceEnseignants />;
       case 'pedagogique':
         return (
           <EspacePedagogique 
@@ -119,6 +124,16 @@ const MainAppContent: React.FC = () => {
         return <JournalAudit />;
       case 'parametres':
         return <ParametresEtablissement />;
+      case 'historique_annees':
+        return (
+          <HistoriqueAnneesScolaires
+            onNavigate={setCurrentTab}
+            onOpenBulletin={(eleveId, classeId, periodeId) => {
+              setBulletinTarget({ eleveId, classeId, periodeId });
+              setCurrentTab('bulletins');
+            }}
+          />
+        );
       case 'directeur_stats':
         return <DirecteurDashboard onNavigate={setCurrentTab} />;
       case 'surveillant':
@@ -136,6 +151,7 @@ const MainAppContent: React.FC = () => {
       <Header
         onOpenTestModal={() => setIsTestModalOpen(true)}
         onOpenSqlModal={() => setIsSqlModalOpen(true)}
+        onOpenMonCompte={() => setIsMonCompteOpen(true)}
       />
 
       {/* Barre de navigation dynamique selon le profil avec déconnexion à gauche */}
@@ -186,7 +202,9 @@ const MainAppContent: React.FC = () => {
 export default function App() {
   return (
     <AuthProvider>
-      <MainAppContent />
+      <AnneeProvider>
+        <MainAppContent />
+      </AnneeProvider>
     </AuthProvider>
   );
 }

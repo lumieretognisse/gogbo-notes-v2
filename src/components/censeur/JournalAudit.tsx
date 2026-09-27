@@ -71,8 +71,14 @@ export const JournalAudit: React.FC = () => {
                       {log.user_nom}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-semibold">
-                        {log.user_role}
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                        log.user_role === 'CONCEPTEUR'
+                          ? 'bg-purple-100 text-purple-900 border border-purple-300 font-bold'
+                          : log.user_role === 'CENSEUR'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300 font-bold'
+                          : 'bg-slate-100 text-slate-700'
+                      }`}>
+                        {log.user_role === 'CONCEPTEUR' ? 'CONCEPTEUR / SUPER ADMINISTRATEUR' : log.user_role}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center whitespace-nowrap">

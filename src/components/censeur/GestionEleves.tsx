@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useAnnee } from '../../context/AnneeContext';
 import { storage } from '../../lib/storage';
 import { Eleve, LangueOption, Sexe } from '../../types';
 import { 
@@ -14,11 +15,15 @@ import {
   CheckCircle,
   X,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  GraduationCap,
+  ArrowRight,
+  Calendar
 } from 'lucide-react';
 
 export const GestionEleves: React.FC = () => {
   const { currentUser, isCenseur, isDirecteur } = useAuth();
+  const { selectedAnnee, annees, isArchive } = useAnnee();
   const canManage = isCenseur || isDirecteur;
 
   const [eleves, setEleves] = useState<Eleve[]>(storage.getEleves());
@@ -31,6 +36,12 @@ export const GestionEleves: React.FC = () => {
   // Modal d'ajout / modification
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEleve, setEditingEleve] = useState<Eleve | null>(null);
+
+  // Modal de promotion / passage de classe pluriannuel
+  const [promotingEleve, setPromotingEleve] = useState<Eleve | null>(null);
+  const [promoteClasseId, setPromoteClasseId] = useState<string>(classes[0]?.id || '');
+  const [promoteAnnee, setPromoteAnnee] = useState<string>('2027–2028');
+  const [promoteRedoublant, setPromoteRedoublant] = useState<boolean>(false);
 
   // Modal de confirmation de désactivation (Exigence 6)
   const [confirmToggleEleve, setConfirmToggleEleve] = useState<Eleve | null>(null);
@@ -168,6 +179,33 @@ export const GestionEleves: React.FC = () => {
     }
   };
 
+  const handlePromoteEleve = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || !promotingEleve) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      storage.promouvoirEleve(
+        promotingEleve.id,
+        promoteClasseId,
+        promoteAnnee,
+        currentUser,
+        promoteRedoublant
+      );
+      const targetCls = classes.find((c) => c.id === promoteClasseId);
+      setSuccessMessage(
+        `✓ Inscription annuelle confirmée : ${promotingEleve.nom} ${promotingEleve.prenom} a été inscrit(e) en ${targetCls?.nom} pour l'année scolaire ${promoteAnnee}. Son historique précédent (${selectedAnnee.libelle}) reste intact.`
+      );
+      refreshList();
+      setPromotingEleve(null);
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : "Erreur lors de la réinscription de l'élève.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Filtrage
   const filteredEleves = eleves.filter((e) => {
     const matchSearch =
@@ -175,7 +213,10 @@ export const GestionEleves: React.FC = () => {
       e.prenom.toLowerCase().includes(searchTerm.toLowerCase()) ||
       e.matricule.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchClasse = selectedClasseFilter === 'ALL' || e.classe_id === selectedClasseFilter;
+    const studentClasse = storage.getClasseOfEleve(e.id, selectedAnnee.libelle);
+    const effectiveClasseId = studentClasse?.id || e.classe_id;
+
+    const matchClasse = selectedClasseFilter === 'ALL' || effectiveClasseId === selectedClasseFilter;
     const matchSexe = selectedSexeFilter === 'ALL' || e.sexe === selectedSexeFilter;
 
     return matchSearch && matchClasse && matchSexe;
@@ -308,7 +349,7 @@ export const GestionEleves: React.FC = () => {
                 </tr>
               ) : (
                 filteredEleves.map((el) => {
-                  const cls = classes.find((c) => c.id === el.classe_id);
+                  const cls = storage.getClasseOfEleve(el.id, selectedAnnee.libelle) || classes.find((c) => c.id === el.classe_id);
 
                   return (
                     <tr key={el.id} id={`row-eleve-${el.id}`} className="hover:bg-slate-50/80 transition-colors">
@@ -372,6 +413,21 @@ export const GestionEleves: React.FC = () => {
                       <td className="px-3 sm:px-4 py-3 whitespace-nowrap text-right space-x-1">
                         {canManage ? (
                           <>
+                            <button
+                              id={`btn-promote-eleve-${el.id}`}
+                              onClick={() => {
+                                setPromotingEleve(el);
+                                setPromoteClasseId(el.classe_id);
+                                const availableYears = annees.filter((a) => a.statut !== 'CLOTUREE');
+                                const nextY = availableYears.find((a) => a.libelle !== selectedAnnee.libelle) || availableYears[0];
+                                setPromoteAnnee(nextY?.libelle || '2027–2028');
+                                setPromoteRedoublant(false);
+                              }}
+                              className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Passage de classe / Inscription pour une autre année"
+                            >
+                              <GraduationCap className="w-4 h-4" />
+                            </button>
                             <button
                               id={`btn-edit-eleve-${el.id}`}
                               onClick={() => openEditModal(el)}
